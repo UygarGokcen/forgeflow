@@ -240,7 +240,8 @@ the raw OpenAPI spec.
 ## Testing
 
 ```bash
-./gradlew test
+./gradlew test              # unit tests — no Docker required
+./gradlew integrationTest   # Testcontainers integration tests — requires a working Docker daemon
 ```
 
 Unit tests cover the pricing strategies (threshold behavior, area calculation, malformed-config
@@ -249,11 +250,19 @@ plus a Mockito-based service-layer suite (`AuthService`, `ProductService`, `Pric
 `QuoteService`, `OrderService`) that mocks repositories but wires up the *real* pricing strategies,
 so line-item pricing is verified end-to-end rather than just "some method got called."
 
+`integrationTest` boots the real Spring context against a Testcontainers-managed Postgres, connected
+as the same unprivileged `forgeflow_app` role production uses — so `TenantIsolationIntegrationTest`
+would actually fail if row-level security silently stopped being enforced, unlike a unit test against
+mocked repositories. `QuoteToOrderFlowIntegrationTest` drives the full product → pricing rule → quote
+→ approve → convert flow through the real REST API. These are tagged `integration` and excluded from
+the default `test` task so `./gradlew build` doesn't depend on Docker being available. On Windows,
+run them from inside a WSL2 distro with Docker Desktop's WSL integration enabled — Docker Desktop's
+Windows named-pipe transport has known compatibility issues with Testcontainers outside of WSL2.
+
 ## Roadmap
 
 Deliberately out of scope for this phase, to keep the core domain reviewable:
 
-- **Phase 2**: Redis (pricing/session cache), Kafka (quote → order event stream), Testcontainers
-  for integration tests against a real Postgres instance, order fulfillment states
-  (shipped/delivered) beyond the current "confirmed on conversion" model.
+- **Phase 2**: Redis (pricing/session cache), Kafka (quote → order event stream), order fulfillment
+  states (shipped/delivered) beyond the current "confirmed on conversion" model.
 - **Phase 3**: Microservice extraction of the pricing engine, inventory domain.

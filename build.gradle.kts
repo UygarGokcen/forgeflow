@@ -19,6 +19,15 @@ repositories {
 	mavenCentral()
 }
 
+dependencyManagement {
+	imports {
+		// Spring Boot 3.3.4 manages Testcontainers 1.19.8, whose bundled docker-java client
+		// mishandles Docker API version negotiation against recent Docker Desktop releases
+		// (fails with "client version 1.32 is too old"). Pin a newer Testcontainers BOM.
+		mavenBom("org.testcontainers:testcontainers-bom:1.20.4")
+	}
+}
+
 dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-web")
 	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
@@ -37,6 +46,8 @@ dependencies {
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.security:spring-security-test")
 	testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
+	testImplementation("org.testcontainers:junit-jupiter")
+	testImplementation("org.testcontainers:postgresql")
 }
 
 kotlin {
@@ -51,6 +62,24 @@ allOpen {
 	annotation("jakarta.persistence.Embeddable")
 }
 
-tasks.withType<Test> {
-	useJUnitPlatform()
+// Integration tests (tagged "integration") need a real, reachable Docker daemon for Testcontainers
+// and are excluded from the default `test` task so `./gradlew build` stays fast and doesn't depend
+// on Docker being available/working in every environment. Run them explicitly via `integrationTest`
+// wherever Docker is known to work reliably (Linux CI runners, WSL2 — Windows + Docker Desktop's
+// named-pipe transport has known compatibility issues with Testcontainers outside of WSL2).
+tasks.test {
+	useJUnitPlatform {
+		excludeTags("integration")
+	}
+}
+
+tasks.register<Test>("integrationTest") {
+	description = "Runs Testcontainers-backed integration tests. Requires a working Docker daemon."
+	group = "verification"
+	testClassesDirs = sourceSets["test"].output.classesDirs
+	classpath = sourceSets["test"].runtimeClasspath
+	useJUnitPlatform {
+		includeTags("integration")
+	}
+	shouldRunAfter(tasks.test)
 }
