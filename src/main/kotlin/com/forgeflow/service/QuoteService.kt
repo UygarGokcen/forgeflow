@@ -2,6 +2,7 @@ package com.forgeflow.service
 
 import com.forgeflow.context.CurrentUser
 import com.forgeflow.context.TenantContext
+import com.forgeflow.domain.Order
 import com.forgeflow.domain.PricingStrategyType
 import com.forgeflow.domain.Quote
 import com.forgeflow.domain.QuoteLineItem
@@ -14,6 +15,7 @@ import com.forgeflow.exception.EmptyQuoteException
 import com.forgeflow.exception.InvalidQuoteStatusTransitionException
 import com.forgeflow.exception.QuoteNotEditableException
 import com.forgeflow.exception.ResourceNotFoundException
+import com.forgeflow.repository.OrderRepository
 import com.forgeflow.repository.PricingRuleRepository
 import com.forgeflow.repository.ProductRepository
 import com.forgeflow.repository.QuoteLineItemRepository
@@ -44,6 +46,7 @@ class QuoteService(
 	private val quoteLineItemRepository: QuoteLineItemRepository,
 	private val productRepository: ProductRepository,
 	private val pricingRuleRepository: PricingRuleRepository,
+	private val orderRepository: OrderRepository,
 	private val strategyResolver: PricingStrategyResolver,
 ) {
 
@@ -147,6 +150,21 @@ class QuoteService(
 		// Flush so @LastModifiedDate (set by the auditing listener at flush time) is reflected in
 		// the response instead of the stale in-memory value from before this update.
 		val saved = quoteRepository.saveAndFlush(quote)
+
+		if (newStatus == QuoteStatus.CONVERTED_TO_ORDER) {
+			orderRepository.save(
+				Order(
+					tenantId = tenantId,
+					quoteId = quoteId,
+					orderNumber = generateOrderNumber(tenantId),
+					customerName = quote.customerName,
+					customerEmail = quote.customerEmail,
+					totalAmount = quote.totalAmount,
+					createdBy = CurrentUser.getId(),
+				),
+			)
+		}
+
 		return saved.toResponse(quoteLineItemRepository.findAllByTenantIdAndQuoteId(tenantId, quoteId))
 	}
 
@@ -174,6 +192,15 @@ class QuoteService(
 			if (!quoteRepository.existsByTenantIdAndQuoteNumber(tenantId, candidate)) return candidate
 		}
 		error("Failed to generate a unique quote number after 10 attempts")
+	}
+
+	private fun generateOrderNumber(tenantId: UUID): String {
+		val datePrefix = LocalDate.now().format(QUOTE_NUMBER_DATE_FORMAT)
+		repeat(10) {
+			val candidate = "ORD-$datePrefix-${(1000..9999).random()}"
+			if (!orderRepository.existsByTenantIdAndOrderNumber(tenantId, candidate)) return candidate
+		}
+		error("Failed to generate a unique order number after 10 attempts")
 	}
 
 	private fun Quote.toResponse(lineItems: List<QuoteLineItem>) = QuoteResponse(

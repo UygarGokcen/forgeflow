@@ -36,7 +36,9 @@ actually extensible in code.
   malformed rule fails fast with a clear 400 instead of silently corrupting a quote later.
 - **A real quote lifecycle.** `DRAFT → APPROVED → CONVERTED_TO_ORDER` (or `REJECTED`) as an
   explicit state machine, not a free-text status column — invalid transitions are rejected,
-  and an empty quote can't be approved.
+  and an empty quote can't be approved. Converting a quote creates an actual `Order` record
+  (its own table, its own number sequence) rather than just flipping a status flag — an order
+  is a confirmed, auditable fact distinct from the quote that produced it.
 - **Boring, production-grade infrastructure choices.** Flyway over `init.sql`, JWT + Postgres
   RLS over a single shared-schema `WHERE tenant_id = ?` you can forget to add, Docker Compose
   you can `up` in one command. No Kafka/Redis/microservices here — that's deliberately deferred
@@ -53,7 +55,7 @@ Security · Flyway · Docker Compose · springdoc-openapi (Swagger UI) · JUnit 
 com.forgeflow/
 ├── config/     Security (JWT filter, SecurityConfig), the RLS-binding transaction manager, OpenAPI
 ├── context/    TenantContext, CurrentUser — request-scoped, backed by Spring's RequestAttributes
-├── domain/     JPA entities: Tenant, User, Product, PricingRule, Quote, QuoteLineItem
+├── domain/     JPA entities: Tenant, User, Product, PricingRule, Quote, QuoteLineItem, Order
 ├── dto/        Request/response DTOs (kept separate from entities)
 ├── repository/ Spring Data JPA repositories
 ├── service/
@@ -110,9 +112,11 @@ erDiagram
     TENANT ||--o{ USER : has
     TENANT ||--o{ PRODUCT : owns
     TENANT ||--o{ QUOTE : owns
+    TENANT ||--o{ ORDER : owns
     PRODUCT ||--o{ PRICING_RULE : "priced by"
     PRODUCT ||--o{ QUOTE_LINE_ITEM : "referenced by"
     QUOTE ||--o{ QUOTE_LINE_ITEM : contains
+    QUOTE ||--o| ORDER : "converts to"
     USER ||--o{ QUOTE : creates
 
     TENANT {
@@ -165,6 +169,15 @@ erDiagram
         decimal unit_price
         decimal line_total
     }
+    ORDER {
+        uuid id PK
+        uuid tenant_id FK
+        uuid quote_id FK "unique"
+        string order_number
+        string customer_name
+        decimal total_amount
+        uuid created_by FK
+    }
 ```
 
 ## Getting Started
@@ -211,11 +224,14 @@ curl -X POST http://localhost:8080/api/v1/quotes/$QUOTE_ID/line-items \
   -d '{"productId":"'"$PRODUCT_ID"'","quantity":1,"width":2.0,"height":1.5}'
 # -> lineTotal: 60.00  (20.00 * 2.0 * 1.5 * 1.0)
 
-# 5. Approve the quote, then convert it to an order
+# 5. Approve the quote, then convert it to an order — this creates a real Order record
 curl -X PUT http://localhost:8080/api/v1/quotes/$QUOTE_ID/status \
   -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"status":"APPROVED"}'
 curl -X PUT http://localhost:8080/api/v1/quotes/$QUOTE_ID/status \
   -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"status":"CONVERTED_TO_ORDER"}'
+
+# 6. The order now exists as its own resource, independent of the quote
+curl http://localhost:8080/api/v1/orders -H "Authorization: Bearer $TOKEN"
 ```
 
 Full endpoint reference: Swagger UI, or [`v3/api-docs`](http://localhost:8080/v3/api-docs) for
@@ -228,12 +244,16 @@ the raw OpenAPI spec.
 ```
 
 Unit tests cover the pricing strategies (threshold behavior, area calculation, malformed-config
-rejection) with plain JUnit 5 — no mocking needed since they're pure functions of their input.
+rejection) with plain JUnit 5 — no mocking needed since they're pure functions of their input —
+plus a Mockito-based service-layer suite (`AuthService`, `ProductService`, `PricingRuleService`,
+`QuoteService`, `OrderService`) that mocks repositories but wires up the *real* pricing strategies,
+so line-item pricing is verified end-to-end rather than just "some method got called."
 
 ## Roadmap
 
 Deliberately out of scope for this phase, to keep the core domain reviewable:
 
 - **Phase 2**: Redis (pricing/session cache), Kafka (quote → order event stream), Testcontainers
-  for integration tests against a real Postgres instance.
-- **Phase 3**: Microservice extraction of the pricing engine, inventory/order fulfillment domain.
+  for integration tests against a real Postgres instance, order fulfillment states
+  (shipped/delivered) beyond the current "confirmed on conversion" model.
+- **Phase 3**: Microservice extraction of the pricing engine, inventory domain.

@@ -1,5 +1,6 @@
 package com.forgeflow.service
 
+import com.forgeflow.domain.Order
 import com.forgeflow.domain.PricingRule
 import com.forgeflow.domain.PricingStrategyType
 import com.forgeflow.domain.Product
@@ -11,6 +12,7 @@ import com.forgeflow.dto.AddQuoteLineItemRequest
 import com.forgeflow.exception.EmptyQuoteException
 import com.forgeflow.exception.InvalidQuoteStatusTransitionException
 import com.forgeflow.exception.QuoteNotEditableException
+import com.forgeflow.repository.OrderRepository
 import com.forgeflow.repository.PricingRuleRepository
 import com.forgeflow.repository.ProductRepository
 import com.forgeflow.repository.QuoteLineItemRepository
@@ -26,8 +28,10 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.doAnswer
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import java.math.BigDecimal
 import java.util.UUID
@@ -38,6 +42,7 @@ class QuoteServiceTest {
 	private val quoteLineItemRepository: QuoteLineItemRepository = mock()
 	private val productRepository: ProductRepository = mock()
 	private val pricingRuleRepository: PricingRuleRepository = mock()
+	private val orderRepository: OrderRepository = mock()
 	private val strategyResolver = PricingStrategyResolver(
 		listOf(FixedPricingStrategy(), VolumeDiscountStrategy(), AreaBasedPricingStrategy()),
 	)
@@ -47,6 +52,7 @@ class QuoteServiceTest {
 		quoteLineItemRepository,
 		productRepository,
 		pricingRuleRepository,
+		orderRepository,
 		strategyResolver,
 	)
 
@@ -176,6 +182,39 @@ class QuoteServiceTest {
 		val response = quoteService.updateStatus(quote.id!!, QuoteStatus.APPROVED)
 
 		assertEquals(QuoteStatus.APPROVED, response.status)
+	}
+
+	@Test
+	fun `updateStatus creates an order when a quote converts`() {
+		val quote = draftQuote().also {
+			it.status = QuoteStatus.APPROVED
+			it.totalAmount = BigDecimal("60.0000")
+		}
+		whenever(quoteRepository.findByTenantIdAndId(tenantId, quote.id!!)).thenReturn(quote)
+		doAnswer { it.arguments[0] as Quote }.whenever(quoteRepository).saveAndFlush(any())
+		whenever(quoteLineItemRepository.findAllByTenantIdAndQuoteId(tenantId, quote.id!!)).thenReturn(emptyList())
+		whenever(orderRepository.existsByTenantIdAndOrderNumber(any(), any())).thenReturn(false)
+		doAnswer { (it.arguments[0] as Order).also { order -> order.id = UUID.randomUUID() } }
+			.whenever(orderRepository).save(any())
+
+		quoteService.updateStatus(quote.id!!, QuoteStatus.CONVERTED_TO_ORDER)
+
+		val captor = argumentCaptor<Order>()
+		verify(orderRepository).save(captor.capture())
+		assertEquals(quote.id, captor.firstValue.quoteId)
+		assertEquals(quote.totalAmount, captor.firstValue.totalAmount)
+	}
+
+	@Test
+	fun `updateStatus does not create an order for a plain rejection`() {
+		val quote = draftQuote()
+		whenever(quoteRepository.findByTenantIdAndId(tenantId, quote.id!!)).thenReturn(quote)
+		doAnswer { it.arguments[0] as Quote }.whenever(quoteRepository).saveAndFlush(any())
+		whenever(quoteLineItemRepository.findAllByTenantIdAndQuoteId(tenantId, quote.id!!)).thenReturn(emptyList())
+
+		quoteService.updateStatus(quote.id!!, QuoteStatus.REJECTED)
+
+		verify(orderRepository, org.mockito.kotlin.never()).save(any())
 	}
 
 	private fun draftQuote() = Quote(
