@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://postgres:5432/forgeflow
+    username: forgeflow_app
+    password: forgeflow_app
+
+  flyway:
+    url: jdbc:postgresql://postgres:5432/forgeflow
+    user: forgeflow
+    password: forgeflow

@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: forgeflow-backend
+
+  # Runtime datasource: unprivileged `forgeflow_app` role (see V1__init_schema.sql)
+  # so row-level-security policies are actually enforced against it.
+  datasource:
+    url: jdbc:postgresql://localhost:5432/forgeflow
+    username: forgeflow_app
+    password: forgeflow_app
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  # Migration datasource: superuser `forgeflow` role, needed for DDL/role management.
+  flyway:
+    enabled: true
+    url: jdbc:postgresql://localhost:5432/forgeflow
+    user: forgeflow
+    password: forgeflow
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+forgeflow:
+  jwt:
+    secret: ${FORGEFLOW_JWT_SECRET:change-me-in-production-this-is-a-dev-only-secret-value}
+    expiration-minutes: 60
