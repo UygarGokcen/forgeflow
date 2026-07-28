@@ -18,3 +18,6 @@ class ResourceNotFoundException(message: String) :
 
 class DuplicateSkuException(sku: String) :
 	ApiException(HttpStatus.CONFLICT, "A product with SKU '$sku' already exists")
+
+class InvalidPricingConfigException(message: String) :
+	ApiException(HttpStatus.BAD_REQUEST, message)
