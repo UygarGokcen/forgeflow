@@ -21,3 +21,12 @@ class DuplicateSkuException(sku: String) :
 
 class InvalidPricingConfigException(message: String) :
 	ApiException(HttpStatus.BAD_REQUEST, message)
+
+class QuoteNotEditableException(quoteId: java.util.UUID, status: String) :
+	ApiException(HttpStatus.CONFLICT, "Quote $quoteId is $status and can no longer be edited")
+
+class InvalidQuoteStatusTransitionException(from: String, to: String) :
+	ApiException(HttpStatus.CONFLICT, "Cannot transition a quote from $from to $to")
+
+class EmptyQuoteException(quoteId: java.util.UUID) :
+	ApiException(HttpStatus.CONFLICT, "Quote $quoteId has no line items and cannot be approved")
