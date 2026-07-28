@@ -33,7 +33,13 @@ class PricingRuleServiceTest {
 	private val strategyResolver = PricingStrategyResolver(
 		listOf(FixedPricingStrategy(), VolumeDiscountStrategy(), AreaBasedPricingStrategy()),
 	)
-	private val pricingRuleService = PricingRuleService(pricingRuleRepository, productRepository, strategyResolver)
+	private val pricingLookupCache: PricingLookupCache = mock()
+	private val pricingRuleService = PricingRuleService(
+		pricingRuleRepository,
+		productRepository,
+		strategyResolver,
+		pricingLookupCache,
+	)
 
 	private val tenantId: UUID = UUID.randomUUID()
 	private val product = Product(

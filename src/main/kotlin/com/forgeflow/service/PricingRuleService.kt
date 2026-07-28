@@ -19,6 +19,7 @@ class PricingRuleService(
 	private val pricingRuleRepository: PricingRuleRepository,
 	private val productRepository: ProductRepository,
 	private val strategyResolver: PricingStrategyResolver,
+	private val pricingLookupCache: PricingLookupCache,
 ) {
 
 	@Transactional
@@ -48,6 +49,7 @@ class PricingRuleService(
 				priority = request.priority,
 			),
 		)
+		pricingLookupCache.evictActiveRules(tenantId, productId)
 		return rule.toResponse()
 	}
 
@@ -64,6 +66,7 @@ class PricingRuleService(
 		val rule = pricingRuleRepository.findByTenantIdAndProductIdAndId(tenantId, productId, ruleId)
 			?: throw ResourceNotFoundException("Pricing rule $ruleId not found for product $productId")
 		pricingRuleRepository.delete(rule)
+		pricingLookupCache.evictActiveRules(tenantId, productId)
 	}
 
 	private fun ensureProductExists(tenantId: UUID, productId: UUID) {

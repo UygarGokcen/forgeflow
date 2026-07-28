@@ -23,7 +23,8 @@ import java.util.UUID
 class ProductServiceTest {
 
 	private val productRepository: ProductRepository = mock()
-	private val productService = ProductService(productRepository)
+	private val pricingLookupCache: PricingLookupCache = mock()
+	private val productService = ProductService(productRepository, pricingLookupCache)
 	private val tenantId: UUID = UUID.randomUUID()
 
 	@BeforeEach

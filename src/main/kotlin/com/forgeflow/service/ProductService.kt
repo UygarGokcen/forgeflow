@@ -15,6 +15,7 @@ import java.util.UUID
 @Service
 class ProductService(
 	private val productRepository: ProductRepository,
+	private val pricingLookupCache: PricingLookupCache,
 ) {
 
 	@Transactional
@@ -54,13 +55,17 @@ class ProductService(
 		product.isActive = request.isActive
 		// Flush so @LastModifiedDate (set by the auditing listener at flush time) is reflected in
 		// the response instead of the stale in-memory value from before this update.
-		return productRepository.saveAndFlush(product).toResponse()
+		val response = productRepository.saveAndFlush(product).toResponse()
+		pricingLookupCache.evictProduct(product.tenantId, id)
+		return response
 	}
 
 	@Transactional
 	fun delete(id: UUID) {
 		val product = findOwned(id)
+		val tenantId = product.tenantId
 		productRepository.delete(product)
+		pricingLookupCache.evictProduct(tenantId, id)
 	}
 
 	private fun findOwned(id: UUID): Product =

@@ -41,13 +41,12 @@ actually extensible in code.
   is a confirmed, auditable fact distinct from the quote that produced it.
 - **Boring, production-grade infrastructure choices.** Flyway over `init.sql`, JWT + Postgres
   RLS over a single shared-schema `WHERE tenant_id = ?` you can forget to add, Docker Compose
-  you can `up` in one command. No Kafka/Redis/microservices here — that's deliberately deferred
-  to a later phase so the core domain logic stays reviewable.
+  you can `up` in one command.
 
 ## Architecture
 
 **Stack:** Kotlin + Spring Boot 3 (Java 21) · Spring Security + JWT · PostgreSQL 16 + Row-Level
-Security · Flyway · Docker Compose · springdoc-openapi (Swagger UI) · JUnit 5
+Security · Redis · Flyway · Docker Compose · springdoc-openapi (Swagger UI) · JUnit 5 + Testcontainers
 
 **Modular monolith**, package-by-layer with a hexagonal-ish flavor:
 
@@ -104,6 +103,23 @@ PricingStrategy (interface)
 shape depends on `strategyType`. `PricingStrategyResolver` collects all `PricingStrategy` beans
 and dispatches by type — adding a new strategy (e.g. tiered volume pricing) means adding one
 `@Component`, no `when` block to update.
+
+### Redis: pricing lookup cache
+
+`QuoteService.addLineItem` looks up the target product and its active pricing rules on *every*
+line item — rarely-changing data being re-read from Postgres on the hottest path in the app.
+[`PricingLookupCache`](src/main/kotlin/com/forgeflow/service/PricingLookupCache.kt) wraps just
+those two lookups with `@Cacheable`/`@CacheEvict`, deliberately not a general-purpose cache: a
+5-minute TTL is the safety net, but `ProductService.update/delete` and `PricingRuleService.create/
+delete` evict explicitly (write-through) so a price change never sits stale for the TTL window.
+Every cache key includes `tenantId` explicitly — never inferred from context — so a caching bug
+can't become a cross-tenant data leak the way a missing `WHERE tenant_id = ?` could.
+
+One non-obvious fix baked into `CacheConfig`: Spring Data Redis's `GenericJackson2JsonRedisSerializer`
+needs an `ObjectMapper` with `JavaTimeModule` registered (or every entity's `Instant` fields fail
+to serialize) *and* default typing activated (or a cached `List<PricingRule>` deserializes back as
+`List<LinkedHashMap>` due to generic type erasure, throwing `ClassCastException` at the pricing
+call site) — both configured explicitly rather than relying on the no-arg constructor.
 
 ## ER Diagram
 
@@ -188,8 +204,8 @@ Requires only Docker.
 docker-compose up --build
 ```
 
-This starts Postgres, runs Flyway migrations automatically on app boot, and serves the API on
-`http://localhost:8080`. Interactive API docs (with a built-in JWT "Authorize" button):
+This starts Postgres and Redis, runs Flyway migrations automatically on app boot, and serves the
+API on `http://localhost:8080`. Interactive API docs (with a built-in JWT "Authorize" button):
 `http://localhost:8080/swagger-ui.html`.
 
 ## API Usage Example
@@ -261,8 +277,8 @@ Windows named-pipe transport has known compatibility issues with Testcontainers 
 
 ## Roadmap
 
-Deliberately out of scope for this phase, to keep the core domain reviewable:
+Deliberately out of scope for now, to keep the core domain reviewable:
 
-- **Phase 2**: Redis (pricing/session cache), Kafka (quote → order event stream), order fulfillment
-  states (shipped/delivered) beyond the current "confirmed on conversion" model.
+- **Phase 2 (remaining)**: Kafka (quote → order event stream), order fulfillment states
+  (shipped/delivered) beyond the current "confirmed on conversion" model.
 - **Phase 3**: Microservice extraction of the pricing engine, inventory domain.

@@ -16,8 +16,6 @@ import com.forgeflow.exception.InvalidQuoteStatusTransitionException
 import com.forgeflow.exception.QuoteNotEditableException
 import com.forgeflow.exception.ResourceNotFoundException
 import com.forgeflow.repository.OrderRepository
-import com.forgeflow.repository.PricingRuleRepository
-import com.forgeflow.repository.ProductRepository
 import com.forgeflow.repository.QuoteLineItemRepository
 import com.forgeflow.repository.QuoteRepository
 import com.forgeflow.service.pricing.PricingContext
@@ -44,8 +42,7 @@ private val ALLOWED_TRANSITIONS: Map<QuoteStatus, Set<QuoteStatus>> = mapOf(
 class QuoteService(
 	private val quoteRepository: QuoteRepository,
 	private val quoteLineItemRepository: QuoteLineItemRepository,
-	private val productRepository: ProductRepository,
-	private val pricingRuleRepository: PricingRuleRepository,
+	private val pricingLookupCache: PricingLookupCache,
 	private val orderRepository: OrderRepository,
 	private val strategyResolver: PricingStrategyResolver,
 ) {
@@ -86,10 +83,10 @@ class QuoteService(
 		val quote = findOwned(tenantId, quoteId)
 		requireEditable(quote)
 
-		val product = productRepository.findByTenantIdAndId(tenantId, request.productId)
+		val product = pricingLookupCache.findProduct(tenantId, request.productId)
 			?: throw ResourceNotFoundException("Product ${request.productId} not found")
 
-		val activeRules = pricingRuleRepository.findAllByTenantIdAndProductIdAndIsActiveTrue(tenantId, product.id!!)
+		val activeRules = pricingLookupCache.findActiveRules(tenantId, product.id!!)
 		val rule = activeRules.maxByOrNull { it.priority }
 
 		val lineTotal = strategyResolver.resolve(rule?.strategyType ?: PricingStrategyType.FIXED).calculateLineTotal(

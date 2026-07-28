@@ -46,12 +46,14 @@ class QuoteServiceTest {
 	private val strategyResolver = PricingStrategyResolver(
 		listOf(FixedPricingStrategy(), VolumeDiscountStrategy(), AreaBasedPricingStrategy()),
 	)
+	// Real instance (no Spring context here, so @Cacheable is inert) — just delegates to the
+	// mocked repositories below, same as calling them directly would.
+	private val pricingLookupCache = PricingLookupCache(productRepository, pricingRuleRepository)
 
 	private val quoteService = QuoteService(
 		quoteRepository,
 		quoteLineItemRepository,
-		productRepository,
-		pricingRuleRepository,
+		pricingLookupCache,
 		orderRepository,
 		strategyResolver,
 	)
