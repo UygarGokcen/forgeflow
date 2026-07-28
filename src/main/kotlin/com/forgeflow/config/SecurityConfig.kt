@@ -3,6 +3,7 @@ package com.forgeflow.config
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.http.SessionCreationPolicy
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
@@ -11,6 +12,7 @@ import org.springframework.security.web.SecurityFilterChain
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
 
 @Configuration
+@EnableMethodSecurity
 class SecurityConfig(
 	private val jwtAuthenticationFilter: JwtAuthenticationFilter,
 ) {
@@ -32,6 +34,9 @@ class SecurityConfig(
 			.exceptionHandling {
 				it.authenticationEntryPoint { _, response, _ ->
 					response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized")
+				}
+				it.accessDeniedHandler { _, response, _ ->
+					response.sendError(HttpServletResponse.SC_FORBIDDEN, "Forbidden")
 				}
 			}
 			.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter::class.java)

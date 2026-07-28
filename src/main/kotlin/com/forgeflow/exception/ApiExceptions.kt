@@ -15,3 +15,6 @@ class InvalidCredentialsException :
 
 class ResourceNotFoundException(message: String) :
 	ApiException(HttpStatus.NOT_FOUND, message)
+
+class DuplicateSkuException(sku: String) :
+	ApiException(HttpStatus.CONFLICT, "A product with SKU '$sku' already exists")
