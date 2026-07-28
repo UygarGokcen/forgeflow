@@ -28,7 +28,13 @@ class SecurityConfig(
 			.httpBasic { it.disable() }
 			.formLogin { it.disable() }
 			.authorizeHttpRequests {
-				it.requestMatchers("/api/v1/auth/**", "/actuator/health").permitAll()
+				it.requestMatchers(
+					"/api/v1/auth/**",
+					"/actuator/health",
+					"/v3/api-docs/**",
+					"/swagger-ui/**",
+					"/swagger-ui.html",
+				).permitAll()
 				it.anyRequest().authenticated()
 			}
 			.exceptionHandling {
