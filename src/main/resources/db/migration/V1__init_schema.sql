@@ -101,15 +101,13 @@ CREATE INDEX idx_quote_line_items_quote_id ON quote_line_items (tenant_id, quote
 -- =========================================================================
 -- Row Level Security (tenant isolation)
 --
--- Application code must run `SET LOCAL app.current_tenant = '<tenant-uuid>'`
--- at the start of every transaction (see the Hibernate connection interceptor
--- wired in a later step). The `tenants` table itself is intentionally left
--- outside RLS since tenant lookup happens before a tenant context exists.
+-- The app sets `app.current_tenant` at the start of every transaction (see
+-- TenantAwareJpaTransactionManager). The `tenants` table is left out of RLS
+-- on purpose, because we look a tenant up before we know which tenant we are.
 --
--- FORCE ROW LEVEL SECURITY is required in addition to ENABLE: Postgres
--- exempts a table's OWNER from its own RLS policies by default, and the
--- `forgeflow` migration/application role owns every table it creates here.
--- Without FORCE, this role would silently bypass tenant isolation entirely.
+-- FORCE is needed as well as ENABLE. Postgres skips RLS for the table owner
+-- by default, and the `forgeflow` role that runs these migrations owns every
+-- table here. Without FORCE it would ignore tenant isolation completely.
 -- =========================================================================
 
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
@@ -140,15 +138,16 @@ CREATE POLICY tenant_isolation_policy ON quote_line_items
 -- =========================================================================
 -- Application role
 --
--- Docker's POSTGRES_USER bootstrap account (`forgeflow`, the role this
--- migration runs as) is a Postgres superuser, and superusers ignore row
--- level security unconditionally -- FORCE ROW LEVEL SECURITY has no effect
--- on them either. The application must connect as a separate, unprivileged
--- role for tenant isolation to actually hold. `forgeflow` remains the
--- migration/admin role (see spring.flyway.* in application.yml); the app's
--- JPA datasource connects as `forgeflow_app` instead (spring.datasource.*).
--- The password below is a local-dev default only; production deployments
--- must provision this role out-of-band with a managed secret.
+-- The `forgeflow` account Docker creates from POSTGRES_USER (the one running
+-- these migrations) is a superuser, and superusers ignore row level security
+-- no matter what -- FORCE doesn't apply to them either. So the app has to
+-- connect as a different role with no special rights, or tenant isolation
+-- wouldn't actually work.
+--
+-- `forgeflow` stays the migration/admin role (spring.flyway.* in
+-- application.yml) and the app connects as `forgeflow_app`
+-- (spring.datasource.*). The password here is only for local development;
+-- a real deployment should create this role separately with a managed secret.
 -- =========================================================================
 
 DO $$

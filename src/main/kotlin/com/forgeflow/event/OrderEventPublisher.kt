@@ -15,10 +15,11 @@ class OrderEventPublisher(
 	private val log = LoggerFactory.getLogger(OrderEventPublisher::class.java)
 
 	/**
-	 * Runs after the DB transaction that created the Order has committed — never before, and never
-	 * at all if that transaction rolled back. Publishing is fire-and-forget: a Kafka outage
-	 * shouldn't be able to fail (or roll back) a quote conversion that's already durably recorded
-	 * in Postgres, so failures are logged rather than propagated.
+	 * Runs only after the transaction that created the order has committed, and not at all if it
+	 * rolled back.
+	 *
+	 * Sending is fire-and-forget. If Kafka is down we log it instead of throwing, because the
+	 * conversion is already saved in Postgres and a broker problem shouldn't undo it.
 	 */
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
 	fun onOrderConverted(event: OrderConvertedEvent) {

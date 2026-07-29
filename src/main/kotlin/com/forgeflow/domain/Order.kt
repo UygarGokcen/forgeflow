@@ -9,9 +9,10 @@ import java.math.BigDecimal
 import java.util.UUID
 
 /**
- * The confirmed record of a [Quote] once it transitions to CONVERTED_TO_ORDER. Line items are
- * intentionally not duplicated here — they're read from quote_line_items via [quoteId], since an
- * order is the confirmed snapshot of a quote rather than an independently editable document.
+ * The confirmed record of a [Quote] after it moves to CONVERTED_TO_ORDER.
+ *
+ * The line items are not copied here. They are read from quote_line_items using [quoteId], because
+ * an order is a snapshot of the quote rather than a separate document you can edit.
  */
 @Entity
 @Table(name = "orders")

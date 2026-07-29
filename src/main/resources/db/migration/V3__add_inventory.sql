@@ -1,8 +1,8 @@
--- Inventory: raw materials and per-product recipes.
+-- Inventory: raw materials and the recipe for each product.
 --
--- A custom manufacturer stocks raw material (steel sheet, profile, coil), not finished goods —
--- there is no warehouse of pre-cut 2m x 1.5m panels to draw down. So stock lives on `materials`,
--- and `product_materials` records how much of each material one unit of a product consumes.
+-- A custom manufacturer keeps raw material (steel sheet, profile, coil), not finished goods.
+-- Nobody has a warehouse of pre-cut 2m x 1.5m panels. So stock is kept on `materials`, and
+-- `product_materials` says how much of each material one unit of a product uses.
 
 CREATE TABLE materials (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -11,8 +11,8 @@ CREATE TABLE materials (
     name             VARCHAR(255) NOT NULL,
     unit_of_measure  VARCHAR(30) NOT NULL
         CHECK (unit_of_measure IN ('PIECE', 'SQUARE_METER', 'LINEAR_METER', 'KILOGRAM')),
-    -- Defense in depth, mirroring how tenant isolation is enforced in the database rather than
-    -- trusted to application code: even a bug in the consumption logic cannot drive stock negative.
+    -- Same idea as leaving tenant isolation to RLS instead of trusting the application code:
+    -- even if the stock logic has a bug, the database won't let stock go negative.
     stock_quantity   NUMERIC(19, 4) NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
     reorder_level    NUMERIC(19, 4) NOT NULL DEFAULT 0 CHECK (reorder_level >= 0),
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -25,9 +25,9 @@ CREATE TABLE product_materials (
     tenant_id          UUID NOT NULL REFERENCES tenants (id),
     product_id         UUID NOT NULL REFERENCES products (id),
     material_id        UUID NOT NULL REFERENCES materials (id),
-    -- Consumption per "unit" of the product, where a unit is a piece for piece-priced products
-    -- and one square meter for area-priced ones — the same dimension basis area-based pricing
-    -- uses, so a quote line's price and its material draw stay consistent by construction.
+    -- How much material one "unit" of the product uses. A unit is one piece for piece-priced
+    -- products and one square meter for area-priced ones, which is the same basis area-based
+    -- pricing uses. So the price and the material usage always come from the same numbers.
     quantity_per_unit  NUMERIC(19, 4) NOT NULL CHECK (quantity_per_unit > 0),
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),

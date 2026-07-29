@@ -15,15 +15,16 @@ private const val ACTIVE_PRICING_RULES_CACHE = "activePricingRules"
 private const val CACHE_KEY = "#tenantId + ':' + #productId"
 
 /**
- * Caches the two DB lookups [com.forgeflow.service.QuoteService.addLineItem] performs on every
- * single quote line item — the product and its active pricing rules — since neither changes often
- * relative to how frequently quotes get priced. Kept as a small, dedicated facade rather than
- * annotating ProductRepository/PricingRuleRepository methods directly, since Spring's caching proxy
- * and this project's custom `@Transactional`-per-repository-method setup have already proven
- * (during the RLS work) not to compose reliably when stacked implicitly.
+ * Caches the two lookups that [com.forgeflow.service.QuoteService.addLineItem] does for every quote
+ * line: the product and its active pricing rules. Neither changes often, but quotes are priced a
+ * lot, so this saves repeated database reads.
  *
- * Tenant id is always part of the cache key explicitly — never inferred — so a caching bug can't
- * become a cross-tenant data leak the way a missing `WHERE tenant_id = ?` could.
+ * It is a small separate class instead of `@Cacheable` on the repositories, because Spring's cache
+ * proxy and the per-method `@Transactional` this project needs for RLS don't stack together
+ * reliably.
+ *
+ * The tenant id is always written into the cache key by hand. That way a caching mistake can't
+ * turn into one tenant reading another tenant's data.
  */
 @Service
 class PricingLookupCache(
@@ -43,11 +44,11 @@ class PricingLookupCache(
 
 	@CacheEvict(cacheNames = [PRODUCTS_CACHE], key = CACHE_KEY)
 	fun evictProduct(tenantId: UUID, productId: UUID) {
-		// body intentionally empty — @CacheEvict does the work
+		// Empty on purpose: @CacheEvict does the work
 	}
 
 	@CacheEvict(cacheNames = [ACTIVE_PRICING_RULES_CACHE], key = CACHE_KEY)
 	fun evictActiveRules(tenantId: UUID, productId: UUID) {
-		// body intentionally empty — @CacheEvict does the work
+		// Empty on purpose: @CacheEvict does the work
 	}
 }

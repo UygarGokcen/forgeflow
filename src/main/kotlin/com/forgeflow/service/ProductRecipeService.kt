@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
 
-/** Manages which materials — and how much of each — a product consumes when it's built. */
+/** Manages which materials a product is made from, and how much of each it uses. */
 @Service
 class ProductRecipeService(
 	private val productMaterialRepository: ProductMaterialRepository,

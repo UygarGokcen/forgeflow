@@ -21,9 +21,9 @@ repositories {
 
 dependencyManagement {
 	imports {
-		// Spring Boot 3.3.4 manages Testcontainers 1.19.8, whose bundled docker-java client
-		// mishandles Docker API version negotiation against recent Docker Desktop releases
-		// (fails with "client version 1.32 is too old"). Pin a newer Testcontainers BOM.
+		// Spring Boot 3.3.4 pulls in Testcontainers 1.19.8. Its docker-java client can't agree on
+		// an API version with recent Docker Desktop versions and fails with
+		// "client version 1.32 is too old", so we pin a newer Testcontainers BOM.
 		mavenBom("org.testcontainers:testcontainers-bom:1.20.4")
 	}
 }
@@ -66,11 +66,10 @@ allOpen {
 	annotation("jakarta.persistence.Embeddable")
 }
 
-// Integration tests (tagged "integration") need a real, reachable Docker daemon for Testcontainers
-// and are excluded from the default `test` task so `./gradlew build` stays fast and doesn't depend
-// on Docker being available/working in every environment. Run them explicitly via `integrationTest`
-// wherever Docker is known to work reliably (Linux CI runners, WSL2 — Windows + Docker Desktop's
-// named-pipe transport has known compatibility issues with Testcontainers outside of WSL2).
+// Integration tests are tagged "integration" and need a working Docker daemon for Testcontainers.
+// They are left out of the default `test` task so `./gradlew build` stays fast and doesn't need
+// Docker. Run them with `integrationTest` where Docker works properly: Linux CI runners, or WSL2
+// on Windows (Testcontainers has known problems with Docker Desktop's Windows named pipe).
 tasks.withType<Test>().configureEach {
 	testLogging {
 		events("failed")

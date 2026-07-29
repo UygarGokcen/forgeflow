@@ -25,8 +25,8 @@ services:
       timeout: 5s
       retries: 10
 
-  # Single-node KRaft broker (no Zookeeper) acting as both controller and broker — fine for a
-  # single dev/demo instance, not a production topology.
+  # A single Kafka node in KRaft mode (no Zookeeper), acting as both controller and broker.
+  # Fine for local development, not how you would run it in production.
   kafka:
     image: apache/kafka:3.9.0
     environment:
@@ -39,11 +39,10 @@ services:
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      # Required for a single-broker cluster: these default to 3, and with only one broker
-      # available the internal __consumer_offsets/__transaction_state topics can never satisfy
-      # that replication factor. Left at the default, every consumer *group* (FindCoordinator /
-      # JoinGroup) silently hangs forever — direct partition/offset reads still work, which is
-      # what made this so confusing to diagnose.
+      # Needed because there is only one broker. These default to 3, and the internal
+      # __consumer_offsets / __transaction_state topics can never reach 3 copies with a single
+      # broker. If you leave the defaults, every consumer *group* hangs forever waiting for a
+      # coordinator, while reading partitions directly still works, which makes it hard to spot.
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1

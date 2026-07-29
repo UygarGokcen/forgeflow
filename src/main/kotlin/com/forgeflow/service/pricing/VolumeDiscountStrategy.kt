@@ -7,11 +7,11 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 
 /**
- * Applies a flat percentage discount to the unit price once quantity reaches a threshold.
+ * Takes a percentage off the unit price once the quantity reaches a certain level.
  *
- * Expected [PricingContext.config] keys:
- * - `minQuantity`: quantity at or above which the discount kicks in
- * - `discountPercent`: percentage (0-100) knocked off the unit price once the threshold is met
+ * Config keys in [PricingContext.config]:
+ * - `minQuantity`: the quantity at which the discount starts applying
+ * - `discountPercent`: how much to take off, from 0 to 100
  */
 @Component
 class VolumeDiscountStrategy : PricingStrategy {

@@ -9,20 +9,16 @@ import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /**
- * Binds the current [TenantContext] tenant id to the Postgres session on every transaction so
- * row-level-security policies (`current_setting('app.current_tenant')`) can enforce isolation.
+ * Sets the current tenant on the Postgres connection so the row-level-security policies
+ * (`current_setting('app.current_tenant')`) can do their job.
  *
- * This must run inside [doBegin], right after the physical connection/transaction is opened and
- * before any repository code executes on that connection — `SET LOCAL`/`set_config(..., true)`
- * only takes effect for the remainder of the *current* transaction, so setting it any later (e.g.
- * via an interceptor around the service method) risks a query slipping through before the tenant
- * is bound.
+ * This has to happen in [doBegin], right after the transaction opens and before any query runs.
+ * `set_config(..., true)` works like `SET LOCAL`: it only lasts for the current transaction. If we
+ * set it later, a query could already have run without a tenant.
  *
- * Every repository query method that should participate in this binding MUST carry an explicit
- * `@Transactional` — Spring Data's implicit default transactional wrapping for derived query
- * methods does not reliably route through this custom transaction manager, which would silently
- * skip the tenant bind and leave the query exposed to whatever stale `app.current_tenant` value a
- * pooled connection happens to carry over from an unrelated prior transaction.
+ * Every repository query method needs its own `@Transactional` for this to work. Spring Data's
+ * default handling for derived query methods doesn't reliably use this custom transaction manager,
+ * and then the tenant is never set at all.
  */
 class TenantAwareJpaTransactionManager(
 	entityManagerFactory: EntityManagerFactory,

@@ -9,10 +9,11 @@ import java.math.BigDecimal
 import java.util.UUID
 
 /**
- * One line of a product's recipe: how much of a given [Material] a single unit of the product
- * consumes. "Unit" means a piece for piece-priced products and one square meter for area-priced
- * ones — the same dimension basis area-based pricing uses, so a quote line's price and its
- * material draw are derived from the same numbers.
+ * One line of a product's recipe: how much of a [Material] one unit of the product uses.
+ *
+ * A "unit" is one piece for piece-priced products, and one square meter for area-priced ones.
+ * That is the same basis area-based pricing uses, so the price of a quote line and the material it
+ * uses are worked out from the same numbers.
  */
 @Entity
 @Table(name = "product_materials")

@@ -1,7 +1,7 @@
--- Orders: created automatically when a Quote transitions to CONVERTED_TO_ORDER.
--- One order per quote (quote_id is unique) — line items are not duplicated here,
--- they're read from quote_line_items via quote_id, since an order is simply the
--- confirmed record of a quote rather than an independently editable document.
+-- Orders: created automatically when a quote moves to CONVERTED_TO_ORDER.
+-- There is one order per quote (quote_id is unique). Line items are not copied
+-- here; they are read from quote_line_items using quote_id, because an order is
+-- the confirmed record of a quote rather than a separate document you can edit.
 
 CREATE TABLE orders (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),

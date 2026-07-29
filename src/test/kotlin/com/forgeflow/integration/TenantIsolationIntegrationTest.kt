@@ -12,10 +12,11 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.math.BigDecimal
 
 /**
- * Regression test for the row-level-security tenant isolation this project relies on. Runs against
- * a real Postgres container (not mocks), connected as the same unprivileged `forgeflow_app` role
- * the production app uses — so this would actually fail if RLS silently stopped being enforced,
- * unlike a unit test against mocked repositories.
+ * Checks the row-level-security tenant isolation this project depends on.
+ *
+ * It runs against a real Postgres container, not mocks, and connects as the same `forgeflow_app`
+ * role the app uses in production. That is what makes it useful: if RLS stopped working, this test
+ * would fail, while a test with mocked repositories would still pass.
  */
 class TenantIsolationIntegrationTest : AbstractIntegrationTest() {
 

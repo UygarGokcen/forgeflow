@@ -125,7 +125,7 @@ class QuoteServiceTest {
 		assertEquals(BigDecimal("60.0000"), response.totalAmount)
 	}
 
-	/** Makes save()+findAll() on the line item repository behave like a real in-memory table. */
+	/** Makes save() and findAll() on the line item repository work like a small in-memory table. */
 	private fun stubLineItemPersistence(quoteId: UUID) {
 		val savedLineItems = mutableListOf<QuoteLineItem>()
 		doAnswer {

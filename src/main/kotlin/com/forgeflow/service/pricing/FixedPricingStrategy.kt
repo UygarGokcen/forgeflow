@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.math.RoundingMode
 
-/** No discount, no area multiplier — line total is simply unit price times quantity. */
+/** No discount and no area maths: the line total is just unit price times quantity. */
 @Component
 class FixedPricingStrategy : PricingStrategy {
 

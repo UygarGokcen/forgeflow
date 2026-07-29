@@ -17,11 +17,13 @@ import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 
 /**
- * Intentionally NOT annotated `@Transactional` at the class/method level: `tenants` is unprotected
- * by RLS, but `users` is. The tenant lookup/insert and the user lookup/insert must run as separate
- * repository-managed transactions so [TenantContext] can be set *between* them — if both ran inside
- * one outer transaction, [com.forgeflow.config.TenantAwareJpaTransactionManager] would have already
- * opened it (with no tenant bound yet) before this method's body ever gets to resolve the tenant.
+ * This class has no `@Transactional` on purpose. The `tenants` table has no RLS policy, but
+ * `users` does, so we need to set [TenantContext] *between* saving the tenant and touching the
+ * user table.
+ *
+ * If one big transaction wrapped both steps, [com.forgeflow.config.TenantAwareJpaTransactionManager]
+ * would already have opened it before we know the tenant id, and the tenant would never be set.
+ * Letting each repository call run in its own transaction avoids that.
  */
 @Service
 class AuthService(

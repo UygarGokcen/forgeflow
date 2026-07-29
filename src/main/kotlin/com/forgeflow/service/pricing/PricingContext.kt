@@ -4,8 +4,8 @@ import com.forgeflow.exception.InvalidPricingConfigException
 import java.math.BigDecimal
 
 /**
- * Everything a [PricingStrategy] needs to price one quote line item. `config` is the
- * [com.forgeflow.domain.PricingRule.config] JSONB blob for the rule being applied.
+ * Everything a [PricingStrategy] needs to price one quote line. `config` is the JSON config from
+ * the [com.forgeflow.domain.PricingRule] being applied.
  */
 data class PricingContext(
 	val baseUnitPrice: BigDecimal,

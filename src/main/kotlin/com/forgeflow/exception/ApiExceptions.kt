@@ -38,9 +38,9 @@ class DuplicateRecipeEntryException(materialId: java.util.UUID) :
 	ApiException(HttpStatus.CONFLICT, "Material $materialId is already part of this product's recipe")
 
 /**
- * Raised when converting a quote would draw more of a material than is in stock. Mirrors the other
- * lifecycle guards: just as an empty quote can't be approved, a quote the shop can't actually build
- * doesn't become an order.
+ * Thrown when converting a quote would use more material than there is in stock. It follows the
+ * same idea as the other lifecycle checks: an empty quote can't be approved, and a quote the shop
+ * can't actually build doesn't become an order.
  */
 class InsufficientStockException(shortfalls: List<String>) :
 	ApiException(

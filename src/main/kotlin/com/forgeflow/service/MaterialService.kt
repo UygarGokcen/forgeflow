@@ -43,7 +43,7 @@ class MaterialService(
 	@Transactional(readOnly = true)
 	fun get(id: UUID): MaterialResponse = findOwned(id).toResponse()
 
-	/** Materials at or below their reorder level — what a purchasing officer actually needs to see. */
+	/** Materials at or below their reorder level, so someone can order more in time. */
 	@Transactional(readOnly = true)
 	fun listLowStock(): List<MaterialResponse> =
 		materialRepository.findLowStock(TenantContext.getCurrentTenant()).map { it.toResponse() }
@@ -54,8 +54,8 @@ class MaterialService(
 		material.name = request.name
 		material.stockQuantity = request.stockQuantity
 		material.reorderLevel = request.reorderLevel
-		// Flush so @LastModifiedDate (set by the auditing listener at flush time) is reflected in
-		// the response instead of the stale in-memory value from before this update.
+		// Flush here so the response carries the new updatedAt. The auditing listener only sets
+		// it during flush, so without this we would return the value from before the update.
 		return materialRepository.saveAndFlush(material).toResponse()
 	}
 

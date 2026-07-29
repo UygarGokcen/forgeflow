@@ -28,8 +28,8 @@ class PricingRuleService(
 		val product = productRepository.findByTenantIdAndId(tenantId, productId)
 			?: throw ResourceNotFoundException("Product $productId not found")
 
-		// Fail fast with a clear 400 at rule-creation time rather than letting a malformed config
-		// surface later as an opaque error while pricing an actual quote line.
+		// Run the strategy once with sample values so a bad config fails here with a clear 400,
+		// instead of showing up later as a confusing error while pricing a real quote line.
 		strategyResolver.resolve(request.strategyType).calculateLineTotal(
 			PricingContext(
 				baseUnitPrice = product.baseUnitPrice,

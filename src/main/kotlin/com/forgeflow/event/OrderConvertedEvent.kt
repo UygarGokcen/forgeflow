@@ -5,10 +5,12 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * Published (as a plain Spring [org.springframework.context.ApplicationEvent]-style POJO, not a
- * Kafka message directly) when a Quote converts to an Order. [com.forgeflow.event.OrderEventPublisher]
- * relays it to Kafka only after the surrounding transaction commits — publishing eagerly inside the
- * transaction risks a "phantom" event on the topic for an Order that a later failure rolled back.
+ * Raised when a quote is converted into an order. This is a plain Spring application event, not a
+ * Kafka message. [OrderEventPublisher] is what sends it to Kafka, and only after the transaction
+ * commits.
+ *
+ * Sending it inside the transaction would risk putting an event on the topic for an order that a
+ * later error rolled back.
  */
 data class OrderConvertedEvent(
 	val orderId: UUID,

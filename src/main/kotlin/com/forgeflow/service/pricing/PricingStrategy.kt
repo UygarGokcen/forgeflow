@@ -6,6 +6,6 @@ import java.math.BigDecimal
 interface PricingStrategy {
 	val type: PricingStrategyType
 
-	/** Returns the total price (already multiplied by quantity) for one quote line item. */
+	/** Returns the total price for one quote line, quantity already included. */
 	fun calculateLineTotal(context: PricingContext): BigDecimal
 }

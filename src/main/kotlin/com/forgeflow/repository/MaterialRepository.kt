@@ -28,13 +28,15 @@ interface MaterialRepository : JpaRepository<Material, UUID> {
 	fun findLowStock(@Param("tenantId") tenantId: UUID): List<Material>
 
 	/**
-	 * Locks the given materials for the remainder of the calling transaction (`SELECT ... FOR
-	 * UPDATE`), so two quotes converting at the same time can't both read the same stock level and
-	 * each conclude there's enough. Deliberately *not* `readOnly`: it joins the caller's write
-	 * transaction (the one creating the Order), which is what holds the lock until that commits.
+	 * Locks these material rows with `SELECT ... FOR UPDATE` until the calling transaction ends, so
+	 * two quotes converting at the same time can't both read the same stock level and both think
+	 * there is enough.
 	 *
-	 * The `order by` is not cosmetic — it makes concurrent callers acquire row locks in the same
-	 * sequence, which is what stops two overlapping conversions from deadlocking each other.
+	 * This is not `readOnly` on purpose. It joins the caller's write transaction (the one creating
+	 * the order), and that transaction is what holds the lock until it commits.
+	 *
+	 * The `order by` matters too: it makes every caller lock rows in the same order, which is what
+	 * stops two overlapping conversions from deadlocking each other.
 	 */
 	@Transactional
 	@Lock(LockModeType.PESSIMISTIC_WRITE)

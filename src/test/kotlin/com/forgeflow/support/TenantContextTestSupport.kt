@@ -9,10 +9,10 @@ import org.springframework.web.context.request.ServletRequestAttributes
 import java.util.UUID
 
 /**
- * [TenantContext] and [com.forgeflow.context.CurrentUser] read from Spring's request-scoped
- * `RequestContextHolder` / `SecurityContextHolder`, which only exist inside a real web request in
- * production. Service-layer unit tests call the same services directly, so this fakes that
- * request scope around each test.
+ * [TenantContext] and [com.forgeflow.context.CurrentUser] read from Spring's
+ * `RequestContextHolder` and `SecurityContextHolder`, which normally only exist during a real web
+ * request. The service unit tests call the services directly, so this sets up a fake request and
+ * security context around each test.
  */
 object TenantContextTestSupport {
 

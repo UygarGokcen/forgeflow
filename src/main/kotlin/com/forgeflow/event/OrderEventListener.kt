@@ -6,9 +6,9 @@ import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 
 /**
- * Stand-in for a downstream consumer this platform doesn't have yet (notifications, fulfillment,
- * billing, ...) — demonstrates that events published on conversion are actually consumable, not
- * just written to a topic nothing reads. A real consumer would live in its own service/module.
+ * Placeholder for a consumer this project doesn't have yet, like notifications, fulfillment or
+ * billing. It only logs, but it proves the events can actually be read back and aren't just being
+ * written to a topic nobody listens to. A real consumer would live in its own service.
  */
 @Component
 class OrderEventListener {

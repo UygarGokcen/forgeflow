@@ -26,15 +26,15 @@ jobs:
       - name: Build and run unit tests
         run: ./gradlew build
 
-      # Runs on a Linux runner with a working Docker daemon, so Testcontainers can start the real
-      # Postgres/Redis/Kafka these tests need — notably the row-level-security isolation checks,
-      # which only mean anything against an actual database.
+      # The Linux runner has a working Docker daemon, so Testcontainers can start the real
+      # Postgres, Redis and Kafka these tests need. The row-level-security checks in particular
+      # only mean something against a real database.
       - name: Run integration tests
         run: ./gradlew integrationTest
 
-      # Republishes each failed test as a workflow annotation. Annotations are readable without
-      # being signed in, unlike the raw job log and uploaded artifacts, which keeps a red build
-      # diagnosable from the run page alone.
+      # Reports each failed test as a workflow annotation. You need to be signed in to read the
+      # raw job log or download the artifacts, but annotations are public, so a red build can
+      # still be understood from the run page.
       - name: Surface test failures as annotations
         if: failure()
         run: |
@@ -43,8 +43,8 @@ jobs:
           import xml.etree.ElementTree as ET
 
           def summarize(problem):
-              """Spring's context-failure messages open with a huge config dump and bury the real
-              cause at the end of the "Caused by" chain, so lead with the innermost causes."""
+              """Spring's context failure messages start with a huge config dump and put the real
+              cause at the end of the "Caused by" chain, so show the innermost causes first."""
               text = problem.text or ""
               causes = [ln.strip() for ln in text.splitlines() if ln.strip().startswith("Caused by:")]
               headline = " ".join((problem.get("message") or "").split())[:200]

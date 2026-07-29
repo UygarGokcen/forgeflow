@@ -11,9 +11,10 @@ import java.math.BigDecimal
 import java.util.UUID
 
 /**
- * A raw material held in stock (steel sheet, profile, coil). Distinct from [Product]: a custom
- * manufacturer stocks material and cuts finished goods to order, so stock is tracked here rather
- * than on the product catalogue.
+ * A raw material kept in stock, like steel sheet, profile or coil.
+ *
+ * This is separate from [Product] on purpose. A custom manufacturer keeps material and cuts the
+ * finished product to order, so stock belongs here and not on the product catalogue.
  */
 @Entity
 @Table(name = "materials")
@@ -35,7 +36,7 @@ class Material(
 	@Column(name = "stock_quantity", nullable = false, precision = 19, scale = 4)
 	var stockQuantity: BigDecimal = BigDecimal.ZERO,
 
-	/** Stock at or below this level is reported as needing replenishment. */
+	/** When stock drops to this level or below, the material shows up as needing a restock. */
 	@Column(name = "reorder_level", nullable = false, precision = 19, scale = 4)
 	var reorderLevel: BigDecimal = BigDecimal.ZERO,
 

@@ -20,24 +20,24 @@ class InventoryService(
 ) {
 
 	/**
-	 * Draws down raw material for every line on a quote being converted to an order, or throws
-	 * [InsufficientStockException] (409) and leaves stock untouched if any material falls short.
+	 * Takes raw material out of stock for every line on a quote that is being converted. If any
+	 * material is short, it throws [InsufficientStockException] (409) and no stock is changed.
 	 *
-	 * Deliberately has no `@Transactional` of its own beyond joining the caller's: it runs inside
-	 * the same transaction that writes the Order, so an order can never exist without its material
-	 * having been consumed, and a shortfall rolls the whole conversion back. (Contrast with the
-	 * Kafka event, which is intentionally deferred until *after* that transaction commits.)
+	 * This joins the caller's transaction, the same one that saves the order. So an order can never
+	 * exist without its material having been taken out, and a shortfall rolls the whole conversion
+	 * back. (The Kafka event is the opposite case: it is sent only *after* that transaction
+	 * commits.)
 	 *
-	 * Products with no recipe consume nothing — a shop may well sell bought-in items it doesn't
-	 * manufacture, and that shouldn't block a conversion.
+	 * Products without a recipe use no material. A shop may also resell items it buys in, and that
+	 * shouldn't block the conversion.
 	 */
 	@Transactional
 	fun consumeForConversion(tenantId: UUID, lineItems: List<QuoteLineItem>) {
 		val required = requiredMaterialQuantities(tenantId, lineItems)
 		if (required.isEmpty()) return
 
-		// Locks the rows for the rest of this transaction so two conversions can't both read the
-		// same stock level and each decide there's enough.
+		// Locks these rows until the transaction ends, so two conversions running at the same time
+		// can't both read the same stock level and both think there is enough.
 		val materials = materialRepository.lockAllByTenantIdAndIdIn(tenantId, required.keys.sorted())
 			.associateBy { it.id!! }
 
@@ -59,7 +59,8 @@ class InventoryService(
 		materialRepository.saveAll(materials.values)
 	}
 
-	/** Total draw per material across all lines, so a material used by two lines is checked once. */
+	/** Adds up how much of each material is needed, so a material used by two lines is only
+	 *  checked once against stock. */
 	private fun requiredMaterialQuantities(
 		tenantId: UUID,
 		lineItems: List<QuoteLineItem>,
@@ -88,14 +89,15 @@ class InventoryService(
 	}
 
 	/**
-	 * How many "units" of a product a quote line represents, for recipe purposes. Keyed off the
-	 * product's unit of measure rather than whichever pricing strategy happens to be attached, so
-	 * material draw stays correct even if pricing rules change: an area-priced product consumes per
-	 * square meter, everything else per piece.
+	 * How many "units" of a product a quote line represents, for the recipe.
+	 *
+	 * This looks at the product's unit of measure, not at the pricing strategy attached to it, so
+	 * changing a pricing rule can't change how much material we take. An area-priced product counts
+	 * per square meter, everything else per piece.
 	 */
 	/**
-	 * Chained BigDecimal multiplication accumulates scale, so a shortfall of 8.25 m² would otherwise
-	 * be reported to the user as "8.2500000000000000".
+	 * Multiplying BigDecimals keeps adding decimal places, so without this a shortfall of 8.25 m²
+	 * would be shown to the user as "8.2500000000000000".
 	 */
 	private fun BigDecimal.tidy(): String = stripTrailingZeros().toPlainString()
 

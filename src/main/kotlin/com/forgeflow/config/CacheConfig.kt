@@ -14,10 +14,11 @@ import org.springframework.data.redis.serializer.RedisSerializationContext
 import java.time.Duration
 
 /**
- * Redis-backed cache for hot, rarely-changing lookups on the quote pricing path (see
- * [com.forgeflow.service.PricingLookupCache]) — not a general-purpose cache for everything.
- * A short TTL is the safety net; mutations evict explicitly (write-through) so a product price
- * change or pricing rule edit doesn't sit stale for the full TTL window.
+ * Redis cache for the lookups on the quote pricing path (see
+ * [com.forgeflow.service.PricingLookupCache]). It is not meant as a general cache for everything.
+ *
+ * The short TTL is only a fallback. Updates clear the cache directly, so a price change or a
+ * pricing rule edit takes effect immediately instead of after the TTL.
  */
 @Configuration
 @EnableCaching
@@ -37,13 +38,13 @@ class CacheConfig {
 			builder.cacheDefaults(config)
 		}
 
-	// GenericJackson2JsonRedisSerializer's no-arg constructor doesn't pick up JavaTimeModule, so
-	// caching anything with an Instant field (every entity, via AuditableEntity) fails at
-	// serialization time. Registering it explicitly here is what's needed for correct handling of
-	// java.time types; Kotlin data class support comes along via KotlinModule. Default typing
-	// (embedding "@class" in the cached JSON) is required too: cached values like
-	// List<PricingRule> lose their element type to generic erasure, and without it Jackson
-	// deserializes back to LinkedHashMap instead of the real entity.
+	// Two things this mapper needs that the default one doesn't have:
+	//
+	// 1. JavaTimeModule. Without it, caching anything with an Instant field fails, and every
+	//    entity has one through AuditableEntity.
+	// 2. Default typing, which writes a "@class" field into the cached JSON. Generics are erased at
+	//    runtime, so a cached List<PricingRule> would otherwise come back as a list of
+	//    LinkedHashMap and blow up with a ClassCastException when the pricing code uses it.
 	private fun redisObjectMapper(): ObjectMapper {
 		val mapper = ObjectMapper()
 			.registerModule(JavaTimeModule())

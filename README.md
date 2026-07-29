@@ -4,51 +4,47 @@
 
 **Multi-tenant manufacturing CPQ (Configure-Price-Quote) & order management platform.**
 
-A SaaS backend for B2B manufacturers who sell custom, variant-driven products (cut-to-size
-panels, made-to-order parts, etc.) and need to turn a customer conversation into a priced,
-auditable quote — without a spreadsheet.
+A SaaS backend for B2B manufacturers that sell custom-made products, like cut-to-size panels or
+made-to-order parts. It turns a customer request into a priced, tracked quote instead of a
+spreadsheet.
 
 ---
 
 ## Business Problem
 
-Small and mid-size manufacturers (metal fabrication, custom furniture, signage, glass/panel
-cutting, ...) routinely sell products where the final price depends on more than a SKU: it
-depends on quantity breaks, surface area, material, and negotiated terms. In practice this
-pricing logic lives in someone's head or in a fragile spreadsheet, quotes are retyped into
-orders by hand, and there's no single source of truth a sales rep, ops manager, or finance
-person can all trust.
+Small and mid-size manufacturers (metal fabrication, custom furniture, signage, glass cutting)
+sell products where the price depends on more than a SKU. It depends on how many you order, the
+surface area, the material, and the agreed terms.
 
-Off-the-shelf CPQ tools exist, but they're built for single-tenant enterprises or licensed
-per-seat SaaS with pricing that doesn't fit a shop running a handful of product lines. A
-manufacturer running multiple brands/plants, or a software vendor serving *many* such
-manufacturers, needs the tenant isolation of a real SaaS platform with pricing logic that's
-actually extensible in code.
+In practice this pricing logic lives in someone's head or in a spreadsheet. Quotes get retyped
+into orders by hand, and there is no single place a sales rep, an ops manager, and finance can
+all look at.
+
+CPQ tools already exist, but they are usually built for large single-tenant companies. A vendor
+that wants to serve *many* small manufacturers needs proper tenant isolation, plus pricing rules
+that can actually be extended in code.
 
 ## Why ForgeFlow
 
-- **Multi-tenant from day one** — not bolted on later. Tenant isolation is enforced at the
-  database level (Postgres Row-Level Security), not just in application code, so a bug in a
-  service class can't leak one tenant's quotes into another's.
-- **Pricing as a strategy, not a spreadsheet formula.** Volume discounts and area-based pricing
-  (the "Sineset problem" — price a custom-cut panel by width × height, not by piece) are
-  pluggable [`PricingStrategy`](src/main/kotlin/com/forgeflow/service/pricing) implementations,
-  configured per product via JSON, not hardcoded `if` statements.
-  A pricing rule's config is validated **at rule-creation time** against the real strategy, so a
-  malformed rule fails fast with a clear 400 instead of silently corrupting a quote later.
-- **A real quote lifecycle.** `DRAFT → APPROVED → CONVERTED_TO_ORDER` (or `REJECTED`) as an
-  explicit state machine, not a free-text status column — invalid transitions are rejected,
-  and an empty quote can't be approved. Converting a quote creates an actual `Order` record
-  (its own table, its own number sequence) rather than just flipping a status flag — an order
-  is a confirmed, auditable fact distinct from the quote that produced it.
-- **Inventory that matches how a job shop actually works.** Stock lives on raw *materials*, not
-  finished goods — nobody warehouses pre-cut 2m × 1.5m panels. Each product carries a recipe of
-  how much material one unit consumes, and converting a quote draws that material down in the
-  same transaction that writes the order, so a shop can't commit to work it hasn't got the steel
-  for.
-- **Boring, production-grade infrastructure choices.** Flyway over `init.sql`, JWT + Postgres
-  RLS over a single shared-schema `WHERE tenant_id = ?` you can forget to add, Docker Compose
-  you can `up` in one command.
+- **Multi-tenant from the start.** Tenant isolation is enforced by the database itself
+  (Postgres Row-Level Security), not only by application code. So even if a service class has a
+  bug, one tenant can't read another tenant's data.
+- **Pricing is a strategy, not a formula in a spreadsheet.** Volume discounts and area-based
+  pricing (price a cut panel by width × height, not per piece) are separate
+  [`PricingStrategy`](src/main/kotlin/com/forgeflow/service/pricing) classes, set up per product
+  with JSON config instead of hardcoded `if` statements. The config is checked when the rule is
+  created, so a bad rule fails right away with a 400 instead of producing a wrong quote later.
+- **A real quote lifecycle.** `DRAFT → APPROVED → CONVERTED_TO_ORDER` (or `REJECTED`) is an
+  explicit state machine, not a free-text status column. Invalid jumps are rejected and an empty
+  quote can't be approved. Converting a quote creates a real `Order` row with its own table and
+  number, instead of just flipping a flag.
+- **Inventory that matches how a workshop really works.** Stock is kept on raw *materials*, not
+  on finished goods, because nobody keeps pre-cut 2m × 1.5m panels on a shelf. Each product has a
+  recipe of how much material one unit uses. Converting a quote subtracts that material in the
+  same transaction that creates the order, so you can't accept a job you don't have the steel for.
+- **Simple, standard infrastructure.** Flyway instead of an `init.sql`, JWT + Postgres RLS
+  instead of a `WHERE tenant_id = ?` you can forget to write, and one `docker-compose up` to run
+  everything.
 
 ## Architecture
 
@@ -56,49 +52,49 @@ actually extensible in code.
 Security · Redis · Kafka · Flyway · Docker Compose · springdoc-openapi (Swagger UI) · JUnit 5 +
 Testcontainers
 
-**Modular monolith**, package-by-layer with a hexagonal-ish flavor:
+It is a **modular monolith**, organised by layer:
 
 ```
 com.forgeflow/
-├── config/     Security (JWT filter, SecurityConfig), the RLS-binding transaction manager, OpenAPI
-├── context/    TenantContext, CurrentUser — request-scoped, backed by Spring's RequestAttributes
+├── config/     Security (JWT filter, SecurityConfig), the tenant-aware transaction manager, OpenAPI
+├── context/    TenantContext, CurrentUser — per-request, backed by Spring's RequestAttributes
 ├── domain/     JPA entities: Tenant, User, Product, PricingRule, Quote, QuoteLineItem, Order,
 │                             Material, ProductMaterial
 ├── event/      OrderConvertedEvent + its Kafka publisher/listener
-├── dto/        Request/response DTOs (kept separate from entities)
+├── dto/        Request/response DTOs (kept separate from the entities)
 ├── repository/ Spring Data JPA repositories
 ├── service/
-│   └── pricing/  Strategy pattern: PricingStrategy + Fixed/VolumeDiscount/AreaBased impls
+│   └── pricing/  Strategy pattern: PricingStrategy + Fixed/VolumeDiscount/AreaBased
 ├── controller/ REST endpoints
-└── exception/  Sealed ApiException hierarchy + a single @RestControllerAdvice
+└── exception/  Sealed ApiException classes + one @RestControllerAdvice
 ```
 
-### Multi-tenancy: JWT claim + Postgres RLS, wired together per-transaction
+### Multi-tenancy: JWT claim + Postgres RLS
 
-1. A tenant's JWT carries a `tenant_id` claim, set once at login/registration and never
-   trusted from client input alone. An optional `X-Tenant-ID` header is cross-checked against
-   the claim and rejected (403) on mismatch — it can *narrow* what a request claims to be
-   acting as, never widen it.
-2. `JwtAuthenticationFilter` resolves the claim and stores it in
-   [`TenantContext`](src/main/kotlin/com/forgeflow/context/TenantContext.kt), which uses Spring's
-   `RequestAttributes` rather than a raw `ThreadLocal` — attributes are bound to the servlet
-   request itself, so nothing can leak across requests on a pooled thread.
-3. Every tenant-scoped table has `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` **and**
-   `FORCE ROW LEVEL SECURITY` (see [`V1__init_schema.sql`](src/main/resources/db/migration/V1__init_schema.sql))
-   with a policy of `tenant_id = current_setting('app.current_tenant')`. The `FORCE` matters:
-   Postgres exempts a table's *owner* from its own RLS policies by default, so the app connects
-   as a separate, unprivileged `forgeflow_app` role — not the `forgeflow` migration/admin role,
-   which is a Postgres superuser and would bypass RLS unconditionally regardless of `FORCE`.
+1. The JWT holds a `tenant_id` claim, set at login or registration. The client can also send an
+   `X-Tenant-ID` header, but it is compared against the claim and rejected with 403 if they don't
+   match. So the header can never widen access, only confirm it.
+2. `JwtAuthenticationFilter` reads the claim and puts it in
+   [`TenantContext`](src/main/kotlin/com/forgeflow/context/TenantContext.kt). This uses Spring's
+   `RequestAttributes` instead of a plain `ThreadLocal`, because attributes are tied to the
+   request itself. A pooled thread can't carry one request's tenant into the next request.
+3. Every tenant table has `ENABLE ROW LEVEL SECURITY` **and** `FORCE ROW LEVEL SECURITY` (see
+   [`V1__init_schema.sql`](src/main/resources/db/migration/V1__init_schema.sql)), with the policy
+   `tenant_id = current_setting('app.current_tenant')`. `FORCE` is needed because Postgres skips
+   RLS for the table owner by default. The app also connects as a separate `forgeflow_app` role
+   with no special rights. The `forgeflow` role used for migrations is a superuser, and
+   superusers ignore RLS no matter what.
 4. [`TenantAwareJpaTransactionManager`](src/main/kotlin/com/forgeflow/config/TenantAwareJpaTransactionManager.kt)
-   overrides `doBegin()` to run `SELECT set_config('app.current_tenant', ?, true)` — the
-   Postgres equivalent of `SET LOCAL`, scoped to the current transaction only — the moment a
-   transaction opens, before any query on that connection can run. Every repository query
-   method carries an explicit `@Transactional`; Spring Data's implicit default transactional
-   wrapping for derived query methods was found *not* to reliably route through a custom
-   transaction manager, which would silently skip the tenant bind.
+   overrides `doBegin()` and runs `SELECT set_config('app.current_tenant', ?, true)` as soon as a
+   transaction starts, before any query can run on that connection. (`set_config(..., true)` is
+   the same as `SET LOCAL`: it only applies to the current transaction.)
 
-The net effect: even a bug that forgets a `WHERE tenant_id = ?` clause in application code
-still can't return another tenant's rows, because the database itself won't allow it.
+   Every repository query method has an explicit `@Transactional`. Spring Data's default
+   transaction handling for derived query methods did not reliably go through the custom
+   transaction manager, which meant the tenant was silently never set.
+
+The result: even if application code forgets a `WHERE tenant_id = ?`, the database still won't
+return another tenant's rows.
 
 ### Pricing Strategy Pattern
 
@@ -109,79 +105,76 @@ PricingStrategy (interface)
 └── AreaBasedPricingStrategy    unitPrice × width × height × multiplier × quantity
 ```
 
-`PricingRule.config` is a JSONB blob (Hibernate 6's native JSON mapping, no extra library) whose
-shape depends on `strategyType`. `PricingStrategyResolver` collects all `PricingStrategy` beans
-and dispatches by type — adding a new strategy (e.g. tiered volume pricing) means adding one
-`@Component`, no `when` block to update.
+`PricingRule.config` is a JSONB column (using Hibernate 6's built-in JSON support, no extra
+library). Its shape depends on `strategyType`. `PricingStrategyResolver` collects every
+`PricingStrategy` bean and picks the right one by type, so adding a new strategy means adding one
+`@Component` and nothing else.
 
 ### Redis: pricing lookup cache
 
-`QuoteService.addLineItem` looks up the target product and its active pricing rules on *every*
-line item — rarely-changing data being re-read from Postgres on the hottest path in the app.
-[`PricingLookupCache`](src/main/kotlin/com/forgeflow/service/PricingLookupCache.kt) wraps just
-those two lookups with `@Cacheable`/`@CacheEvict`, deliberately not a general-purpose cache: a
-5-minute TTL is the safety net, but `ProductService.update/delete` and `PricingRuleService.create/
-delete` evict explicitly (write-through) so a price change never sits stale for the TTL window.
-Every cache key includes `tenantId` explicitly — never inferred from context — so a caching bug
-can't become a cross-tenant data leak the way a missing `WHERE tenant_id = ?` could.
+`QuoteService.addLineItem` loads the product and its active pricing rules for *every* line item.
+That data rarely changes, but it was being read from Postgres on the busiest path in the app.
+[`PricingLookupCache`](src/main/kotlin/com/forgeflow/service/PricingLookupCache.kt) caches only
+those two lookups with `@Cacheable` and `@CacheEvict`. It is not a general cache for everything.
 
-One non-obvious fix baked into `CacheConfig`: Spring Data Redis's `GenericJackson2JsonRedisSerializer`
-needs an `ObjectMapper` with `JavaTimeModule` registered (or every entity's `Instant` fields fail
-to serialize) *and* default typing activated (or a cached `List<PricingRule>` deserializes back as
-`List<LinkedHashMap>` due to generic type erasure, throwing `ClassCastException` at the pricing
-call site) — both configured explicitly rather than relying on the no-arg constructor.
+There is a 5-minute TTL as a fallback, but `ProductService.update/delete` and
+`PricingRuleService.create/delete` clear the cache directly, so a price change takes effect right
+away instead of waiting for the TTL. Every cache key contains the `tenantId` on purpose, so a
+caching bug can't turn into one tenant seeing another tenant's data.
 
-### Kafka: quote → order event stream
+Two settings in `CacheConfig` are easy to miss. Spring Data Redis's
+`GenericJackson2JsonRedisSerializer` needs an `ObjectMapper` with `JavaTimeModule` registered,
+otherwise the `Instant` fields on every entity fail to serialize. It also needs default typing
+turned on, otherwise a cached `List<PricingRule>` comes back as `List<LinkedHashMap>` because of
+generic type erasure and throws a `ClassCastException`.
 
-Converting a quote publishes an `OrderConvertedEvent` to the `forgeflow.order-events` topic —
-the seam a notification service, a fulfillment/ERP integration, or a billing system would
-subscribe to, none of which this platform has yet
-([`OrderEventListener`](src/main/kotlin/com/forgeflow/event/OrderEventListener.kt) is a stand-in
-that just logs, to prove the event is actually consumable).
+### Kafka: quote → order events
 
-The publish is wired through
-[`OrderEventPublisher`](src/main/kotlin/com/forgeflow/event/OrderEventPublisher.kt) as a
-`@TransactionalEventListener(phase = AFTER_COMMIT)` reacting to a plain Spring `ApplicationEvent`
-that `QuoteService.updateStatus` raises *inside* its `@Transactional` method — not a direct
-`KafkaTemplate.send()` call from there. This ordering matters: if the event were published inside
-the transaction and something later forced a rollback, the topic would carry a "phantom" event for
-an Order that never actually exists in Postgres. `AFTER_COMMIT` guarantees the Kafka message is
-only ever sent once the Order is durably persisted, and a Kafka outage is logged rather than
-failing (or rolling back) a conversion that Postgres has already committed.
+Converting a quote publishes an `OrderConvertedEvent` to the `forgeflow.order-events` topic. This
+is where a notification service, an ERP integration, or a billing system would plug in later.
+Right now [`OrderEventListener`](src/main/kotlin/com/forgeflow/event/OrderEventListener.kt) just
+logs the event, to show that it really is consumable.
 
-### Inventory: material draw on conversion
+`QuoteService.updateStatus` doesn't call `KafkaTemplate.send()` itself. It raises a normal Spring
+`ApplicationEvent`, and
+[`OrderEventPublisher`](src/main/kotlin/com/forgeflow/event/OrderEventPublisher.kt) sends it to
+Kafka from a `@TransactionalEventListener(phase = AFTER_COMMIT)`.
 
-A custom manufacturer stocks raw material and cuts to order, so `materials` holds stock and
-`product_materials` records each product's recipe — how much of a material one *unit* consumes,
-where a unit is a piece for piece-priced products and one square meter for area-priced ones. That
-basis is deliberately keyed off the product's unit of measure rather than whichever pricing rule
-happens to be attached, so a 2m × 1.5m panel draws material for the same 3 m² its price was
-calculated from, and changing a pricing rule can't silently desynchronise the two.
+The order of those two things matters. If the message were sent inside the transaction and the
+transaction then rolled back, Kafka would hold an event for an order that doesn't exist in the
+database. `AFTER_COMMIT` means the message is only sent after the order is really saved. And if
+Kafka is down, the error is logged instead of failing a conversion the database already committed.
+
+Docker Compose runs a single Kafka broker in KRaft mode (no Zookeeper). One setting there is easy
+to miss: `offsets.topic.replication.factor` defaults to `3`, and with one broker the internal
+`__consumer_offsets` topic can never reach that, so it is set to `1`. If you leave the default,
+every consumer *group* hangs forever while reading direct partitions still works, which makes it
+hard to diagnose.
+
+### Inventory: taking material out of stock
+
+A custom manufacturer keeps raw material and cuts to order, so `materials` holds the stock and
+`product_materials` holds each product's recipe: how much material one *unit* uses. A unit is one
+piece for piece-priced products, and one square meter for area-priced ones.
+
+That basis comes from the product's unit of measure, not from whichever pricing rule is attached.
+This way a 2m × 1.5m panel takes material for the same 3 m² its price was based on, and editing a
+pricing rule can't make the two disagree.
 
 [`InventoryService.consumeForConversion`](src/main/kotlin/com/forgeflow/service/InventoryService.kt)
-runs *inside* the transaction that writes the Order and *before* it, so:
+runs inside the same transaction that creates the order, and before it. So:
 
-- a shortfall throws `InsufficientStockException` (409) and rolls the entire conversion back — the
-  quote stays `APPROVED`, no order row appears, and no Kafka event is emitted for work that isn't
-  happening;
-- an order can never exist without its material having been drawn down.
+- if stock is short it throws `InsufficientStockException` (409) and the whole conversion is rolled
+  back. The quote stays `APPROVED`, no order is created, and no Kafka event goes out.
+- an order can't exist without its material having been taken out of stock.
 
-Concurrency is handled with `SELECT ... FOR UPDATE` on the affected material rows
-(`MaterialRepository.lockAllByTenantIdAndIdIn`), ordered by id so two overlapping conversions
-acquire locks in the same sequence and can't deadlock each other. Without the lock, two quotes
-converting simultaneously could both read the same stock level and each conclude there was enough.
-As a last line of defence — the same philosophy as pushing tenant isolation into RLS — the
-`stock_quantity >= 0` check constraint means even a bug in this logic cannot drive stock negative.
+For concurrency it uses `SELECT ... FOR UPDATE` on the material rows
+(`MaterialRepository.lockAllByTenantIdAndIdIn`), ordered by id so two conversions lock rows in the
+same order and don't deadlock. Without the lock, two quotes converting at the same time could both
+read the same stock level and both think there was enough. The `stock_quantity >= 0` check
+constraint is the last safety net, in the same spirit as leaving tenant isolation to RLS.
 
-Products with no recipe consume nothing, since a shop may resell bought-in items it doesn't
-manufacture.
-
-Docker Compose runs a single-node Kafka broker in KRaft mode (no Zookeeper). One setting is
-required and easy to miss: `offsets.topic.replication.factor` defaults to `3`, and with only one
-broker available the internal `__consumer_offsets` topic can never satisfy that, so it's pinned to
-`1`. Left at the default, every consumer *group* join silently hangs forever (`FindCoordinator`
-never resolves) — direct partition/offset reads still work fine, which is what made this
-confusing to track down.
+Products without a recipe use no material, since a shop may also resell items it buys in.
 
 ## ER Diagram
 
@@ -285,9 +278,9 @@ Requires only Docker.
 docker-compose up --build
 ```
 
-This starts Postgres, Redis and a single-node Kafka broker, runs Flyway migrations automatically
-on app boot, and serves the API on `http://localhost:8080`. Interactive API docs (with a built-in
-JWT "Authorize" button): `http://localhost:8080/swagger-ui.html`.
+This starts Postgres, Redis and a single Kafka broker. Flyway runs the migrations when the app
+boots, and the API is served on `http://localhost:8080`. There is also Swagger UI with an
+"Authorize" button for the JWT: `http://localhost:8080/swagger-ui.html`.
 
 ## API Usage Example
 
@@ -347,56 +340,53 @@ curl http://localhost:8080/api/v1/materials/$MATERIAL_ID -H "Authorization: Bear
 curl http://localhost:8080/api/v1/materials/low-stock -H "Authorization: Bearer $TOKEN"
 ```
 
-Full endpoint reference: Swagger UI, or [`v3/api-docs`](http://localhost:8080/v3/api-docs) for
-the raw OpenAPI spec.
+For the full list of endpoints see Swagger UI, or
+[`v3/api-docs`](http://localhost:8080/v3/api-docs) for the raw OpenAPI file.
 
 ## Testing
 
 ```bash
-./gradlew test              # unit tests — no Docker required
-./gradlew integrationTest   # Testcontainers integration tests — requires a working Docker daemon
+./gradlew test              # unit tests, no Docker needed
+./gradlew integrationTest   # Testcontainers tests, needs a running Docker daemon
 ```
 
-Unit tests cover the pricing strategies (threshold behavior, area calculation, malformed-config
-rejection) with plain JUnit 5 — no mocking needed since they're pure functions of their input —
-plus a Mockito-based service-layer suite (`AuthService`, `ProductService`, `PricingRuleService`,
-`QuoteService`, `OrderService`, `InventoryService`) that mocks repositories but wires up the *real*
-pricing strategies, so line-item pricing is verified end-to-end rather than just "some method got
-called." `InventoryServiceTest` covers the cases most likely to go quietly wrong: area-priced vs
-piece-priced draw, two lines sharing a material being summed *before* the stock check, and a
-shortfall leaving stock untouched.
+The unit tests cover the pricing strategies (discount thresholds, area calculation, bad config)
+with plain JUnit 5. No mocking is needed there because the strategies are pure functions.
 
-`integrationTest` boots the real Spring context against Testcontainers-managed Postgres, Redis and
-Kafka instances — all three run for real rather than being stubbed, so these tests actually cover
-the caching and event-publishing paths, not just the HTTP and persistence layers. The application
-datasource connects as the same unprivileged `forgeflow_app` role production uses, which is what
-gives `TenantIsolationIntegrationTest` its teeth: it would genuinely fail if row-level security
-stopped being enforced, unlike a unit test against mocked repositories.
-`QuoteToOrderFlowIntegrationTest` drives the full product → pricing rule → quote → approve →
-convert flow through the real REST API.
+On top of that there is a Mockito suite for the services (`AuthService`, `ProductService`,
+`PricingRuleService`, `QuoteService`, `OrderService`, `InventoryService`). It mocks the
+repositories but uses the *real* pricing strategies, so the tests check actual prices instead of
+just checking that a method was called. `InventoryServiceTest` covers the cases most likely to
+break quietly: area-priced vs piece-priced products, two lines using the same material being added
+up *before* the stock check, and a shortfall leaving stock unchanged.
 
-These are tagged `integration` and excluded from the default `test` task, so `./gradlew build`
-stays fast and doesn't depend on Docker being available. CI runs both on every push.
+`integrationTest` starts the real Spring context with Postgres, Redis and Kafka running in
+Testcontainers. All three are real, not stubbed, so the tests also cover the caching and Kafka
+paths. The app connects with the same unprivileged `forgeflow_app` role used in production, which
+is what makes `TenantIsolationIntegrationTest` meaningful: it would actually fail if row-level
+security stopped working. `QuoteToOrderFlowIntegrationTest` runs the whole
+product → pricing rule → quote → approve → convert flow through the REST API.
 
-> **Running integration tests on Windows:** run them from inside a WSL2 distro with Docker
-> Desktop's WSL integration enabled. Docker Desktop's Windows named-pipe transport has known
-> compatibility issues with Testcontainers outside of WSL2 — the client fails to negotiate an API
-> version and reports "Could not find a valid Docker environment" even while the Docker CLI itself
-> works fine.
+These tests are tagged `integration` and left out of the default `test` task, so `./gradlew build`
+stays fast and doesn't need Docker. CI runs both on every push.
+
+> **Running the integration tests on Windows:** run them inside a WSL2 distro with Docker Desktop's
+> WSL integration turned on. Testcontainers has known problems with Docker Desktop's Windows named
+> pipe: it can't agree on an API version and reports "Could not find a valid Docker environment",
+> even though the `docker` command itself works.
 
 ## Roadmap
 
-Deliberately out of scope for now, to keep the core domain reviewable:
+Left out for now to keep the project easy to read:
 
-- Order fulfillment states (shipped/delivered) beyond the current "confirmed on conversion" model.
-- A real downstream consumer of `forgeflow.order-events` (notifications, ERP/billing integration) —
-  `OrderEventListener` today is just a logging stub.
-- A `stock_movements` ledger. Stock is currently a running balance on `materials`; an append-only
-  movement history would make consumption auditable and let stock be reconstructed or corrected,
-  which any shop doing real inventory control eventually needs.
-- Purchase orders closing the loop on `low-stock`, so replenishment is tracked rather than just
-  reported.
+- Order states after conversion (shipped, delivered). Right now an order is just "confirmed".
+- A real consumer for `forgeflow.order-events`, such as notifications or an ERP/billing
+  integration. `OrderEventListener` only logs for now.
+- A `stock_movements` table. Stock is currently a single running total on `materials`. Keeping a
+  history of every movement would make it auditable and let stock be rebuilt or corrected, which
+  any shop doing real inventory control needs eventually.
+- Purchase orders, so `low-stock` leads to actual restocking instead of only reporting a problem.
 
-Microservice extraction was on an earlier version of this roadmap and has been dropped
-deliberately: nothing here is under the scale, team-boundary, or independent-deploy pressure that
-makes splitting a well-separated modular monolith worth its operational cost.
+Splitting this into microservices was on an earlier version of this roadmap, and I dropped it on
+purpose. There is no scale, team size, or deployment pressure here that would make splitting a
+well-separated monolith worth the extra operational work.

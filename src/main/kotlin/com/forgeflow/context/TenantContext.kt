@@ -5,9 +5,11 @@ import org.springframework.web.context.request.RequestContextHolder
 import java.util.UUID
 
 /**
- * Holds the current request's tenant id via Spring's [RequestAttributes] rather than a raw
- * ThreadLocal: attributes are bound to the ServletRequest itself, so they cannot leak into a
- * pooled thread that later serves an unrelated request.
+ * Holds the tenant id for the current request.
+ *
+ * This uses Spring's [RequestAttributes] instead of a plain ThreadLocal, because the attributes
+ * belong to the request itself. With a ThreadLocal, a pooled thread could still be holding one
+ * request's tenant when it picks up the next request.
  */
 object TenantContext {
 

@@ -32,7 +32,7 @@ import java.util.UUID
 
 private val QUOTE_NUMBER_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd")
 
-/** Legal forward transitions for a quote's lifecycle; anything not listed here is rejected. */
+/** The status changes a quote is allowed to make. Anything not listed here is rejected. */
 private val ALLOWED_TRANSITIONS: Map<QuoteStatus, Set<QuoteStatus>> = mapOf(
 	QuoteStatus.DRAFT to setOf(QuoteStatus.APPROVED, QuoteStatus.REJECTED),
 	QuoteStatus.APPROVED to setOf(QuoteStatus.CONVERTED_TO_ORDER, QuoteStatus.REJECTED),
@@ -148,14 +148,14 @@ class QuoteService(
 		}
 
 		quote.status = newStatus
-		// Flush so @LastModifiedDate (set by the auditing listener at flush time) is reflected in
-		// the response instead of the stale in-memory value from before this update.
+		// Flush here so the response carries the new updatedAt. The auditing listener only sets
+		// it during flush, so without this we would return the value from before the update.
 		val saved = quoteRepository.saveAndFlush(quote)
 
 		if (newStatus == QuoteStatus.CONVERTED_TO_ORDER) {
-			// Before the order exists, not after: a shortfall must abort the whole conversion, and
-			// running inside this same transaction means an Order can never be recorded without the
-			// material it needs having been drawn down.
+			// Do this before creating the order, not after. If stock is short the whole conversion
+			// has to stop, and running it in this same transaction means an order can never be
+			// saved without its material having been taken out of stock.
 			inventoryService.consumeForConversion(
 				tenantId,
 				quoteLineItemRepository.findAllByTenantIdAndQuoteId(tenantId, quoteId),

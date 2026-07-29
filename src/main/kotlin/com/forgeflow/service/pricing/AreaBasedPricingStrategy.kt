@@ -7,9 +7,11 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 
 /**
- * Prices by surface area rather than piece count — e.g. a custom-cut panel sold per square meter.
- * `baseUnitPrice` is treated as the price per unit area; an optional `multiplier` config key adds
- * a coefficient on top (waste factor, complexity surcharge, etc.), defaulting to 1.
+ * Prices by area instead of by piece, for example a cut panel sold per square meter.
+ *
+ * Here `baseUnitPrice` is the price per square meter. The optional `multiplier` config key is an
+ * extra factor on top, such as a waste allowance or a surcharge for difficult work. It defaults
+ * to 1.
  */
 @Component
 class AreaBasedPricingStrategy : PricingStrategy {

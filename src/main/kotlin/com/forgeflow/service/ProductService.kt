@@ -53,8 +53,8 @@ class ProductService(
 		product.baseUnitPrice = request.baseUnitPrice
 		product.unitOfMeasure = request.unitOfMeasure
 		product.isActive = request.isActive
-		// Flush so @LastModifiedDate (set by the auditing listener at flush time) is reflected in
-		// the response instead of the stale in-memory value from before this update.
+		// Flush here so the response carries the new updatedAt. The auditing listener only sets
+		// it during flush, so without this we would return the value from before the update.
 		val response = productRepository.saveAndFlush(product).toResponse()
 		pricingLookupCache.evictProduct(product.tenantId, id)
 		return response
