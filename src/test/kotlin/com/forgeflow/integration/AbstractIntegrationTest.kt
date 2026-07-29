@@ -15,7 +15,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.junit.jupiter.Testcontainers
-import org.testcontainers.kafka.KafkaContainer
+import org.testcontainers.kafka.ConfluentKafkaContainer
 import java.util.UUID
 
 /** `GenericContainer` is self-referentially generic; Kotlin needs a concrete subclass to use it. */
@@ -43,7 +43,11 @@ private object SharedContainers {
 		.withExposedPorts(6379)
 		.also { it.start() }
 
-	val kafka: KafkaContainer = KafkaContainer("apache/kafka:3.9.0")
+	// Confluent's KRaft image rather than the `apache/kafka` one used in docker-compose:
+	// Testcontainers' apache/kafka support couldn't bring 3.9.0 up here (the broker exited 1 before
+	// ever logging "Transitioning from RECOVERY to RUNNING"), and the broker is interchangeable for
+	// the purposes of these tests.
+	val kafka: ConfluentKafkaContainer = ConfluentKafkaContainer("confluentinc/cp-kafka:7.8.0")
 		.also { it.start() }
 }
 
@@ -105,6 +109,9 @@ abstract class AbstractIntegrationTest {
 			registry.add("spring.data.redis.port") { SharedContainers.redis.getMappedPort(6379) }
 
 			registry.add("spring.kafka.bootstrap-servers") { SharedContainers.kafka.bootstrapServers }
+			// Without this the producer would block on its default 60s metadata timeout if the
+			// broker were ever unreachable, stalling a test that doesn't assert on Kafka at all.
+			registry.add("spring.kafka.producer.properties.max.block.ms") { "10000" }
 		}
 	}
 }
