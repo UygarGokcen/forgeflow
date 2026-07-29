@@ -1,5 +1,7 @@
 # ForgeFlow
 
+[![CI](https://github.com/UygarGokcen/forgeflow/actions/workflows/ci.yml/badge.svg)](https://github.com/UygarGokcen/forgeflow/actions/workflows/ci.yml)
+
 **Multi-tenant manufacturing CPQ (Configure-Price-Quote) & order management platform.**
 
 A SaaS backend for B2B manufacturers who sell custom, variant-driven products (cut-to-size
@@ -292,14 +294,23 @@ plus a Mockito-based service-layer suite (`AuthService`, `ProductService`, `Pric
 `QuoteService`, `OrderService`) that mocks repositories but wires up the *real* pricing strategies,
 so line-item pricing is verified end-to-end rather than just "some method got called."
 
-`integrationTest` boots the real Spring context against a Testcontainers-managed Postgres, connected
-as the same unprivileged `forgeflow_app` role production uses — so `TenantIsolationIntegrationTest`
-would actually fail if row-level security silently stopped being enforced, unlike a unit test against
-mocked repositories. `QuoteToOrderFlowIntegrationTest` drives the full product → pricing rule → quote
-→ approve → convert flow through the real REST API. These are tagged `integration` and excluded from
-the default `test` task so `./gradlew build` doesn't depend on Docker being available. On Windows,
-run them from inside a WSL2 distro with Docker Desktop's WSL integration enabled — Docker Desktop's
-Windows named-pipe transport has known compatibility issues with Testcontainers outside of WSL2.
+`integrationTest` boots the real Spring context against Testcontainers-managed Postgres, Redis and
+Kafka instances — all three run for real rather than being stubbed, so these tests actually cover
+the caching and event-publishing paths, not just the HTTP and persistence layers. The application
+datasource connects as the same unprivileged `forgeflow_app` role production uses, which is what
+gives `TenantIsolationIntegrationTest` its teeth: it would genuinely fail if row-level security
+stopped being enforced, unlike a unit test against mocked repositories.
+`QuoteToOrderFlowIntegrationTest` drives the full product → pricing rule → quote → approve →
+convert flow through the real REST API.
+
+These are tagged `integration` and excluded from the default `test` task, so `./gradlew build`
+stays fast and doesn't depend on Docker being available. CI runs both on every push.
+
+> **Running integration tests on Windows:** run them from inside a WSL2 distro with Docker
+> Desktop's WSL integration enabled. Docker Desktop's Windows named-pipe transport has known
+> compatibility issues with Testcontainers outside of WSL2 — the client fails to negotiate an API
+> version and reports "Could not find a valid Docker environment" even while the Docker CLI itself
+> works fine.
 
 ## Roadmap
 

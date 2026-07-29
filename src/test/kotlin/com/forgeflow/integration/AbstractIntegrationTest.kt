@@ -3,36 +3,52 @@ package com.forgeflow.integration
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.forgeflow.dto.AuthResponse
 import com.forgeflow.dto.RegisterTenantRequest
+import org.junit.jupiter.api.Tag
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.http.MediaType
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
-import org.junit.jupiter.api.Tag
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.junit.jupiter.Testcontainers
+import org.testcontainers.kafka.KafkaContainer
 import java.util.UUID
 
+/** `GenericContainer` is self-referentially generic; Kotlin needs a concrete subclass to use it. */
+private class RedisContainer : GenericContainer<RedisContainer>("redis:7-alpine")
+
 /**
- * Single Postgres container shared across every integration test class in this JVM (Testcontainers'
- * "singleton container" pattern) — started once, never explicitly stopped; the Ryuk reaper cleans it
- * up when the JVM exits. Re-creating a container per test class would make the suite far slower for
- * no isolation benefit, since each test already registers its own tenant and never touches another
- * test's rows.
+ * Containers shared across every integration test class in this JVM (Testcontainers' "singleton
+ * container" pattern) — started once, never explicitly stopped; the Ryuk reaper cleans them up when
+ * the JVM exits. Re-creating them per test class would make the suite far slower for no isolation
+ * benefit, since each test registers its own tenant and never touches another test's rows.
+ *
+ * All three backing services run for real rather than being stubbed out: the app's Spring context
+ * wires up caching and a Kafka listener regardless, and disabling them here would mean these tests
+ * quietly stop covering the cache and event-publishing paths they're meant to exercise.
  */
-private object SharedPostgres {
-	val container: PostgreSQLContainer<*> = PostgreSQLContainer("postgres:16-alpine")
+private object SharedContainers {
+
+	val postgres: PostgreSQLContainer<*> = PostgreSQLContainer("postgres:16-alpine")
 		.withDatabaseName("forgeflow")
 		.withUsername("forgeflow")
 		.withPassword("forgeflow")
 		.also { it.start() }
+
+	val redis: RedisContainer = RedisContainer()
+		.withExposedPorts(6379)
+		.also { it.start() }
+
+	val kafka: KafkaContainer = KafkaContainer("apache/kafka:3.9.0")
+		.also { it.start() }
 }
 
 /**
- * Boots the real Spring context against the container above, using the same admin/app role split
+ * Boots the real Spring context against the containers above, using the same admin/app role split
  * as production (see V1__init_schema.sql): Flyway migrates as the container's bootstrap superuser,
  * while the application datasource connects as the unprivileged `forgeflow_app` role that migration
  * creates — otherwise these tests would pass even if row-level security were silently broken, since
@@ -74,16 +90,21 @@ abstract class AbstractIntegrationTest {
 	companion object {
 		@DynamicPropertySource
 		@JvmStatic
-		fun configureDatasources(registry: DynamicPropertyRegistry) {
-			val container = SharedPostgres.container
+		fun configureBackingServices(registry: DynamicPropertyRegistry) {
+			val postgres = SharedContainers.postgres
 
-			registry.add("spring.flyway.url") { container.jdbcUrl }
-			registry.add("spring.flyway.user") { container.username }
-			registry.add("spring.flyway.password") { container.password }
+			registry.add("spring.flyway.url") { postgres.jdbcUrl }
+			registry.add("spring.flyway.user") { postgres.username }
+			registry.add("spring.flyway.password") { postgres.password }
 
-			registry.add("spring.datasource.url") { container.jdbcUrl }
+			registry.add("spring.datasource.url") { postgres.jdbcUrl }
 			registry.add("spring.datasource.username") { "forgeflow_app" }
 			registry.add("spring.datasource.password") { "forgeflow_app" }
+
+			registry.add("spring.data.redis.host") { SharedContainers.redis.host }
+			registry.add("spring.data.redis.port") { SharedContainers.redis.getMappedPort(6379) }
+
+			registry.add("spring.kafka.bootstrap-servers") { SharedContainers.kafka.bootstrapServers }
 		}
 	}
 }
