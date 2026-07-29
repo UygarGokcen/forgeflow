@@ -71,6 +71,16 @@ allOpen {
 // on Docker being available/working in every environment. Run them explicitly via `integrationTest`
 // wherever Docker is known to work reliably (Linux CI runners, WSL2 — Windows + Docker Desktop's
 // named-pipe transport has known compatibility issues with Testcontainers outside of WSL2).
+tasks.withType<Test>().configureEach {
+	testLogging {
+		events("failed")
+		exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+		showExceptions = true
+		showCauses = true
+		showStackTraces = true
+	}
+}
+
 tasks.test {
 	useJUnitPlatform {
 		excludeTags("integration")
