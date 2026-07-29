@@ -46,7 +46,8 @@ actually extensible in code.
 ## Architecture
 
 **Stack:** Kotlin + Spring Boot 3 (Java 21) · Spring Security + JWT · PostgreSQL 16 + Row-Level
-Security · Redis · Flyway · Docker Compose · springdoc-openapi (Swagger UI) · JUnit 5 + Testcontainers
+Security · Redis · Kafka · Flyway · Docker Compose · springdoc-openapi (Swagger UI) · JUnit 5 +
+Testcontainers
 
 **Modular monolith**, package-by-layer with a hexagonal-ish flavor:
 
@@ -120,6 +121,31 @@ needs an `ObjectMapper` with `JavaTimeModule` registered (or every entity's `Ins
 to serialize) *and* default typing activated (or a cached `List<PricingRule>` deserializes back as
 `List<LinkedHashMap>` due to generic type erasure, throwing `ClassCastException` at the pricing
 call site) — both configured explicitly rather than relying on the no-arg constructor.
+
+### Kafka: quote → order event stream
+
+Converting a quote publishes an `OrderConvertedEvent` to the `forgeflow.order-events` topic —
+the seam a notification service, a fulfillment/ERP integration, or a billing system would
+subscribe to, none of which this platform has yet
+([`OrderEventListener`](src/main/kotlin/com/forgeflow/event/OrderEventListener.kt) is a stand-in
+that just logs, to prove the event is actually consumable).
+
+The publish is wired through
+[`OrderEventPublisher`](src/main/kotlin/com/forgeflow/event/OrderEventPublisher.kt) as a
+`@TransactionalEventListener(phase = AFTER_COMMIT)` reacting to a plain Spring `ApplicationEvent`
+that `QuoteService.updateStatus` raises *inside* its `@Transactional` method — not a direct
+`KafkaTemplate.send()` call from there. This ordering matters: if the event were published inside
+the transaction and something later forced a rollback, the topic would carry a "phantom" event for
+an Order that never actually exists in Postgres. `AFTER_COMMIT` guarantees the Kafka message is
+only ever sent once the Order is durably persisted, and a Kafka outage is logged rather than
+failing (or rolling back) a conversion that Postgres has already committed.
+
+Docker Compose runs a single-node Kafka broker in KRaft mode (no Zookeeper). One setting is
+required and easy to miss: `offsets.topic.replication.factor` defaults to `3`, and with only one
+broker available the internal `__consumer_offsets` topic can never satisfy that, so it's pinned to
+`1`. Left at the default, every consumer *group* join silently hangs forever (`FindCoordinator`
+never resolves) — direct partition/offset reads still work fine, which is what made this
+confusing to track down.
 
 ## ER Diagram
 
@@ -204,9 +230,9 @@ Requires only Docker.
 docker-compose up --build
 ```
 
-This starts Postgres and Redis, runs Flyway migrations automatically on app boot, and serves the
-API on `http://localhost:8080`. Interactive API docs (with a built-in JWT "Authorize" button):
-`http://localhost:8080/swagger-ui.html`.
+This starts Postgres, Redis and a single-node Kafka broker, runs Flyway migrations automatically
+on app boot, and serves the API on `http://localhost:8080`. Interactive API docs (with a built-in
+JWT "Authorize" button): `http://localhost:8080/swagger-ui.html`.
 
 ## API Usage Example
 
@@ -279,6 +305,7 @@ Windows named-pipe transport has known compatibility issues with Testcontainers 
 
 Deliberately out of scope for now, to keep the core domain reviewable:
 
-- **Phase 2 (remaining)**: Kafka (quote → order event stream), order fulfillment states
-  (shipped/delivered) beyond the current "confirmed on conversion" model.
+- **Phase 2 (remaining)**: order fulfillment states (shipped/delivered) beyond the current
+  "confirmed on conversion" model; a real downstream consumer of `forgeflow.order-events`
+  (notifications, ERP/billing integration) — `OrderEventListener` today is just a logging stub.
 - **Phase 3**: Microservice extraction of the pricing engine, inventory domain.

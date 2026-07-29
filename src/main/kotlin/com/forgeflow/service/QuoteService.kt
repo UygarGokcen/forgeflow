@@ -11,6 +11,7 @@ import com.forgeflow.dto.AddQuoteLineItemRequest
 import com.forgeflow.dto.CreateQuoteRequest
 import com.forgeflow.dto.QuoteLineItemResponse
 import com.forgeflow.dto.QuoteResponse
+import com.forgeflow.event.OrderConvertedEvent
 import com.forgeflow.exception.EmptyQuoteException
 import com.forgeflow.exception.InvalidQuoteStatusTransitionException
 import com.forgeflow.exception.QuoteNotEditableException
@@ -20,6 +21,7 @@ import com.forgeflow.repository.QuoteLineItemRepository
 import com.forgeflow.repository.QuoteRepository
 import com.forgeflow.service.pricing.PricingContext
 import com.forgeflow.service.pricing.PricingStrategyResolver
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
@@ -45,6 +47,7 @@ class QuoteService(
 	private val pricingLookupCache: PricingLookupCache,
 	private val orderRepository: OrderRepository,
 	private val strategyResolver: PricingStrategyResolver,
+	private val eventPublisher: ApplicationEventPublisher,
 ) {
 
 	@Transactional
@@ -149,7 +152,7 @@ class QuoteService(
 		val saved = quoteRepository.saveAndFlush(quote)
 
 		if (newStatus == QuoteStatus.CONVERTED_TO_ORDER) {
-			orderRepository.save(
+			val order = orderRepository.save(
 				Order(
 					tenantId = tenantId,
 					quoteId = quoteId,
@@ -158,6 +161,18 @@ class QuoteService(
 					customerEmail = quote.customerEmail,
 					totalAmount = quote.totalAmount,
 					createdBy = CurrentUser.getId(),
+				),
+			)
+			eventPublisher.publishEvent(
+				OrderConvertedEvent(
+					orderId = order.id!!,
+					quoteId = quoteId,
+					tenantId = tenantId,
+					orderNumber = order.orderNumber,
+					customerName = order.customerName,
+					customerEmail = order.customerEmail,
+					totalAmount = order.totalAmount,
+					createdBy = order.createdBy,
 				),
 			)
 		}

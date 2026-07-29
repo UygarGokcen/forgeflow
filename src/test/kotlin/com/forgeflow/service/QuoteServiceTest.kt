@@ -33,6 +33,7 @@ import org.mockito.kotlin.doAnswer
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
+import org.springframework.context.ApplicationEventPublisher
 import java.math.BigDecimal
 import java.util.UUID
 
@@ -43,6 +44,7 @@ class QuoteServiceTest {
 	private val productRepository: ProductRepository = mock()
 	private val pricingRuleRepository: PricingRuleRepository = mock()
 	private val orderRepository: OrderRepository = mock()
+	private val eventPublisher: ApplicationEventPublisher = mock()
 	private val strategyResolver = PricingStrategyResolver(
 		listOf(FixedPricingStrategy(), VolumeDiscountStrategy(), AreaBasedPricingStrategy()),
 	)
@@ -56,6 +58,7 @@ class QuoteServiceTest {
 		pricingLookupCache,
 		orderRepository,
 		strategyResolver,
+		eventPublisher,
 	)
 
 	private val tenantId: UUID = UUID.randomUUID()
@@ -205,6 +208,11 @@ class QuoteServiceTest {
 		verify(orderRepository).save(captor.capture())
 		assertEquals(quote.id, captor.firstValue.quoteId)
 		assertEquals(quote.totalAmount, captor.firstValue.totalAmount)
+
+		val eventCaptor = argumentCaptor<com.forgeflow.event.OrderConvertedEvent>()
+		verify(eventPublisher).publishEvent(eventCaptor.capture())
+		assertEquals(quote.id, eventCaptor.firstValue.quoteId)
+		assertEquals(quote.totalAmount, eventCaptor.firstValue.totalAmount)
 	}
 
 	@Test
@@ -217,6 +225,7 @@ class QuoteServiceTest {
 		quoteService.updateStatus(quote.id!!, QuoteStatus.REJECTED)
 
 		verify(orderRepository, org.mockito.kotlin.never()).save(any())
+		verify(eventPublisher, org.mockito.kotlin.never()).publishEvent(any())
 	}
 
 	private fun draftQuote() = Quote(
