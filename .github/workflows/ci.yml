@@ -42,6 +42,16 @@ jobs:
           import glob
           import xml.etree.ElementTree as ET
 
+          def summarize(problem):
+              """Spring's context-failure messages open with a huge config dump and bury the real
+              cause at the end of the "Caused by" chain, so lead with the innermost causes."""
+              text = problem.text or ""
+              causes = [ln.strip() for ln in text.splitlines() if ln.strip().startswith("Caused by:")]
+              headline = " ".join((problem.get("message") or "").split())[:200]
+              if causes:
+                  return ("ROOT CAUSES: " + " >> ".join(causes[-4:]))[:1500]
+              return (headline + " | " + " ".join(text.split()))[:1500]
+
           found = False
           for path in glob.glob("build/test-results/**/*.xml", recursive=True):
               try:
@@ -49,12 +59,10 @@ jobs:
               except ET.ParseError:
                   continue
               for case in root.iter("testcase"):
-                  problems = list(case.findall("failure")) + list(case.findall("error"))
-                  for problem in problems:
+                  for problem in list(case.findall("failure")) + list(case.findall("error")):
                       found = True
-                      detail = "%s | %s" % (problem.get("message") or "", problem.text or "")
-                      detail = " ".join(detail.split())[:1500]
-                      print("::error::%s.%s :: %s" % (case.get("classname"), case.get("name"), detail))
+                      print("::error::%s.%s :: %s" % (
+                          case.get("classname"), case.get("name"), summarize(problem)))
 
           if not found:
               print("::error::No failing test cases found in build/test-results — the build likely "
