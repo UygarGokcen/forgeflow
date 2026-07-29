@@ -41,6 +41,11 @@ actually extensible in code.
   and an empty quote can't be approved. Converting a quote creates an actual `Order` record
   (its own table, its own number sequence) rather than just flipping a status flag — an order
   is a confirmed, auditable fact distinct from the quote that produced it.
+- **Inventory that matches how a job shop actually works.** Stock lives on raw *materials*, not
+  finished goods — nobody warehouses pre-cut 2m × 1.5m panels. Each product carries a recipe of
+  how much material one unit consumes, and converting a quote draws that material down in the
+  same transaction that writes the order, so a shop can't commit to work it hasn't got the steel
+  for.
 - **Boring, production-grade infrastructure choices.** Flyway over `init.sql`, JWT + Postgres
   RLS over a single shared-schema `WHERE tenant_id = ?` you can forget to add, Docker Compose
   you can `up` in one command.
@@ -57,7 +62,9 @@ Testcontainers
 com.forgeflow/
 ├── config/     Security (JWT filter, SecurityConfig), the RLS-binding transaction manager, OpenAPI
 ├── context/    TenantContext, CurrentUser — request-scoped, backed by Spring's RequestAttributes
-├── domain/     JPA entities: Tenant, User, Product, PricingRule, Quote, QuoteLineItem, Order
+├── domain/     JPA entities: Tenant, User, Product, PricingRule, Quote, QuoteLineItem, Order,
+│                             Material, ProductMaterial
+├── event/      OrderConvertedEvent + its Kafka publisher/listener
 ├── dto/        Request/response DTOs (kept separate from entities)
 ├── repository/ Spring Data JPA repositories
 ├── service/
@@ -142,6 +149,33 @@ an Order that never actually exists in Postgres. `AFTER_COMMIT` guarantees the K
 only ever sent once the Order is durably persisted, and a Kafka outage is logged rather than
 failing (or rolling back) a conversion that Postgres has already committed.
 
+### Inventory: material draw on conversion
+
+A custom manufacturer stocks raw material and cuts to order, so `materials` holds stock and
+`product_materials` records each product's recipe — how much of a material one *unit* consumes,
+where a unit is a piece for piece-priced products and one square meter for area-priced ones. That
+basis is deliberately keyed off the product's unit of measure rather than whichever pricing rule
+happens to be attached, so a 2m × 1.5m panel draws material for the same 3 m² its price was
+calculated from, and changing a pricing rule can't silently desynchronise the two.
+
+[`InventoryService.consumeForConversion`](src/main/kotlin/com/forgeflow/service/InventoryService.kt)
+runs *inside* the transaction that writes the Order and *before* it, so:
+
+- a shortfall throws `InsufficientStockException` (409) and rolls the entire conversion back — the
+  quote stays `APPROVED`, no order row appears, and no Kafka event is emitted for work that isn't
+  happening;
+- an order can never exist without its material having been drawn down.
+
+Concurrency is handled with `SELECT ... FOR UPDATE` on the affected material rows
+(`MaterialRepository.lockAllByTenantIdAndIdIn`), ordered by id so two overlapping conversions
+acquire locks in the same sequence and can't deadlock each other. Without the lock, two quotes
+converting simultaneously could both read the same stock level and each conclude there was enough.
+As a last line of defence — the same philosophy as pushing tenant isolation into RLS — the
+`stock_quantity >= 0` check constraint means even a bug in this logic cannot drive stock negative.
+
+Products with no recipe consume nothing, since a shop may resell bought-in items it doesn't
+manufacture.
+
 Docker Compose runs a single-node Kafka broker in KRaft mode (no Zookeeper). One setting is
 required and easy to miss: `offsets.topic.replication.factor` defaults to `3`, and with only one
 broker available the internal `__consumer_offsets` topic can never satisfy that, so it's pinned to
@@ -157,8 +191,11 @@ erDiagram
     TENANT ||--o{ PRODUCT : owns
     TENANT ||--o{ QUOTE : owns
     TENANT ||--o{ ORDER : owns
+    TENANT ||--o{ MATERIAL : stocks
     PRODUCT ||--o{ PRICING_RULE : "priced by"
     PRODUCT ||--o{ QUOTE_LINE_ITEM : "referenced by"
+    PRODUCT ||--o{ PRODUCT_MATERIAL : "built from"
+    MATERIAL ||--o{ PRODUCT_MATERIAL : "consumed by"
     QUOTE ||--o{ QUOTE_LINE_ITEM : contains
     QUOTE ||--o| ORDER : "converts to"
     USER ||--o{ QUOTE : creates
@@ -222,6 +259,22 @@ erDiagram
         decimal total_amount
         uuid created_by FK
     }
+    MATERIAL {
+        uuid id PK
+        uuid tenant_id FK
+        string sku
+        string name
+        string unit_of_measure
+        decimal stock_quantity
+        decimal reorder_level
+    }
+    PRODUCT_MATERIAL {
+        uuid id PK
+        uuid tenant_id FK
+        uuid product_id FK
+        uuid material_id FK
+        decimal quantity_per_unit
+    }
 ```
 
 ## Getting Started
@@ -258,7 +311,17 @@ curl -X POST http://localhost:8080/api/v1/products/$PRODUCT_ID/pricing-rules \
   -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
   -d '{"strategyType":"AREA_BASED","config":{"multiplier":1.0}}'
 
-# 4. Create a quote and add a line item — price is computed server-side via the strategy above
+# 4. Stock the raw material the panel is cut from, and record the recipe:
+#    1.1 m2 of sheet per m2 of panel (a waste/offcut allowance)
+MATERIAL_ID=$(curl -s -X POST http://localhost:8080/api/v1/materials \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"sku":"SHEET-01","name":"Steel Sheet","unitOfMeasure":"SQUARE_METER","stockQuantity":10,"reorderLevel":4}' | jq -r .id)
+
+curl -X POST http://localhost:8080/api/v1/products/$PRODUCT_ID/materials \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"materialId":"'"$MATERIAL_ID"'","quantityPerUnit":1.1}'
+
+# 5. Create a quote and add a line item — price is computed server-side via the strategy above
 QUOTE_ID=$(curl -s -X POST http://localhost:8080/api/v1/quotes \
   -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
   -d '{"customerName":"Contoso Mfg"}' | jq -r .id)
@@ -268,14 +331,20 @@ curl -X POST http://localhost:8080/api/v1/quotes/$QUOTE_ID/line-items \
   -d '{"productId":"'"$PRODUCT_ID"'","quantity":1,"width":2.0,"height":1.5}'
 # -> lineTotal: 60.00  (20.00 * 2.0 * 1.5 * 1.0)
 
-# 5. Approve the quote, then convert it to an order — this creates a real Order record
+# 6. Approve the quote, then convert it to an order — this creates a real Order record,
+#    draws down the material, and publishes an order-converted event to Kafka
 curl -X PUT http://localhost:8080/api/v1/quotes/$QUOTE_ID/status \
   -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"status":"APPROVED"}'
 curl -X PUT http://localhost:8080/api/v1/quotes/$QUOTE_ID/status \
   -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"status":"CONVERTED_TO_ORDER"}'
 
-# 6. The order now exists as its own resource, independent of the quote
+# 7. The order exists as its own resource, and 3.3 m2 of sheet is gone (10 -> 6.7)
 curl http://localhost:8080/api/v1/orders -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8080/api/v1/materials/$MATERIAL_ID -H "Authorization: Bearer $TOKEN"
+
+# Converting a quote the shop can't build is refused outright:
+# 409 "SHEET-01 needs 8.25 SQUARE_METER but only 6.7 in stock" — and the quote stays APPROVED.
+curl http://localhost:8080/api/v1/materials/low-stock -H "Authorization: Bearer $TOKEN"
 ```
 
 Full endpoint reference: Swagger UI, or [`v3/api-docs`](http://localhost:8080/v3/api-docs) for
@@ -291,8 +360,11 @@ the raw OpenAPI spec.
 Unit tests cover the pricing strategies (threshold behavior, area calculation, malformed-config
 rejection) with plain JUnit 5 — no mocking needed since they're pure functions of their input —
 plus a Mockito-based service-layer suite (`AuthService`, `ProductService`, `PricingRuleService`,
-`QuoteService`, `OrderService`) that mocks repositories but wires up the *real* pricing strategies,
-so line-item pricing is verified end-to-end rather than just "some method got called."
+`QuoteService`, `OrderService`, `InventoryService`) that mocks repositories but wires up the *real*
+pricing strategies, so line-item pricing is verified end-to-end rather than just "some method got
+called." `InventoryServiceTest` covers the cases most likely to go quietly wrong: area-priced vs
+piece-priced draw, two lines sharing a material being summed *before* the stock check, and a
+shortfall leaving stock untouched.
 
 `integrationTest` boots the real Spring context against Testcontainers-managed Postgres, Redis and
 Kafka instances — all three run for real rather than being stubbed, so these tests actually cover
@@ -316,7 +388,15 @@ stays fast and doesn't depend on Docker being available. CI runs both on every p
 
 Deliberately out of scope for now, to keep the core domain reviewable:
 
-- **Phase 2 (remaining)**: order fulfillment states (shipped/delivered) beyond the current
-  "confirmed on conversion" model; a real downstream consumer of `forgeflow.order-events`
-  (notifications, ERP/billing integration) — `OrderEventListener` today is just a logging stub.
-- **Phase 3**: Microservice extraction of the pricing engine, inventory domain.
+- Order fulfillment states (shipped/delivered) beyond the current "confirmed on conversion" model.
+- A real downstream consumer of `forgeflow.order-events` (notifications, ERP/billing integration) —
+  `OrderEventListener` today is just a logging stub.
+- A `stock_movements` ledger. Stock is currently a running balance on `materials`; an append-only
+  movement history would make consumption auditable and let stock be reconstructed or corrected,
+  which any shop doing real inventory control eventually needs.
+- Purchase orders closing the loop on `low-stock`, so replenishment is tracked rather than just
+  reported.
+
+Microservice extraction was on an earlier version of this roadmap and has been dropped
+deliberately: nothing here is under the scale, team-boundary, or independent-deploy pressure that
+makes splitting a well-separated modular monolith worth its operational cost.

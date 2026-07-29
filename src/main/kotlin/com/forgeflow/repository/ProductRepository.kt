@@ -13,5 +13,8 @@ interface ProductRepository : JpaRepository<Product, UUID> {
 	fun findAllByTenantId(tenantId: UUID): List<Product>
 
 	@Transactional(readOnly = true)
+	fun findAllByTenantIdAndIdIn(tenantId: UUID, ids: Collection<UUID>): List<Product>
+
+	@Transactional(readOnly = true)
 	fun existsByTenantIdAndSku(tenantId: UUID, sku: String): Boolean
 }

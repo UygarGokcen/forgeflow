@@ -47,6 +47,7 @@ class QuoteService(
 	private val pricingLookupCache: PricingLookupCache,
 	private val orderRepository: OrderRepository,
 	private val strategyResolver: PricingStrategyResolver,
+	private val inventoryService: InventoryService,
 	private val eventPublisher: ApplicationEventPublisher,
 ) {
 
@@ -152,6 +153,14 @@ class QuoteService(
 		val saved = quoteRepository.saveAndFlush(quote)
 
 		if (newStatus == QuoteStatus.CONVERTED_TO_ORDER) {
+			// Before the order exists, not after: a shortfall must abort the whole conversion, and
+			// running inside this same transaction means an Order can never be recorded without the
+			// material it needs having been drawn down.
+			inventoryService.consumeForConversion(
+				tenantId,
+				quoteLineItemRepository.findAllByTenantIdAndQuoteId(tenantId, quoteId),
+			)
+
 			val order = orderRepository.save(
 				Order(
 					tenantId = tenantId,

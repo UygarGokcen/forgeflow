@@ -52,12 +52,15 @@ class QuoteServiceTest {
 	// mocked repositories below, same as calling them directly would.
 	private val pricingLookupCache = PricingLookupCache(productRepository, pricingRuleRepository)
 
+	private val inventoryService: InventoryService = mock()
+
 	private val quoteService = QuoteService(
 		quoteRepository,
 		quoteLineItemRepository,
 		pricingLookupCache,
 		orderRepository,
 		strategyResolver,
+		inventoryService,
 		eventPublisher,
 	)
 
@@ -213,6 +216,24 @@ class QuoteServiceTest {
 		verify(eventPublisher).publishEvent(eventCaptor.capture())
 		assertEquals(quote.id, eventCaptor.firstValue.quoteId)
 		assertEquals(quote.totalAmount, eventCaptor.firstValue.totalAmount)
+	}
+
+	@Test
+	fun `updateStatus aborts the conversion when material stock is short`() {
+		val quote = draftQuote().also { it.status = QuoteStatus.APPROVED }
+		whenever(quoteRepository.findByTenantIdAndId(tenantId, quote.id!!)).thenReturn(quote)
+		doAnswer { it.arguments[0] as Quote }.whenever(quoteRepository).saveAndFlush(any())
+		whenever(quoteLineItemRepository.findAllByTenantIdAndQuoteId(tenantId, quote.id!!)).thenReturn(emptyList())
+		whenever(inventoryService.consumeForConversion(any(), any()))
+			.thenThrow(com.forgeflow.exception.InsufficientStockException(listOf("STEEL-01 is short")))
+
+		assertThrows(com.forgeflow.exception.InsufficientStockException::class.java) {
+			quoteService.updateStatus(quote.id!!, QuoteStatus.CONVERTED_TO_ORDER)
+		}
+
+		// No order, and nothing announced downstream, for a conversion that didn't happen.
+		verify(orderRepository, org.mockito.kotlin.never()).save(any())
+		verify(eventPublisher, org.mockito.kotlin.never()).publishEvent(any())
 	}
 
 	@Test

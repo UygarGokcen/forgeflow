@@ -30,3 +30,20 @@ class InvalidQuoteStatusTransitionException(from: String, to: String) :
 
 class EmptyQuoteException(quoteId: java.util.UUID) :
 	ApiException(HttpStatus.CONFLICT, "Quote $quoteId has no line items and cannot be approved")
+
+class DuplicateMaterialSkuException(sku: String) :
+	ApiException(HttpStatus.CONFLICT, "A material with SKU '$sku' already exists")
+
+class DuplicateRecipeEntryException(materialId: java.util.UUID) :
+	ApiException(HttpStatus.CONFLICT, "Material $materialId is already part of this product's recipe")
+
+/**
+ * Raised when converting a quote would draw more of a material than is in stock. Mirrors the other
+ * lifecycle guards: just as an empty quote can't be approved, a quote the shop can't actually build
+ * doesn't become an order.
+ */
+class InsufficientStockException(shortfalls: List<String>) :
+	ApiException(
+		HttpStatus.CONFLICT,
+		"Insufficient material stock to convert this quote: ${shortfalls.joinToString("; ")}",
+	)
