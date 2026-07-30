@@ -1,7 +1,9 @@
 package com.forgeflow.controller
 
+import com.forgeflow.dto.AdjustStockRequest
 import com.forgeflow.dto.CreateMaterialRequest
 import com.forgeflow.dto.MaterialResponse
+import com.forgeflow.dto.StockMovementResponse
 import com.forgeflow.dto.UpdateMaterialRequest
 import com.forgeflow.service.MaterialService
 import jakarta.validation.Valid
@@ -51,4 +53,15 @@ class MaterialController(
 		materialService.delete(id)
 		return ResponseEntity.noContent().build()
 	}
+
+	@PostMapping("/{id}/adjustments")
+	@PreAuthorize("hasRole('ADMIN')")
+	fun adjustStock(
+		@PathVariable id: UUID,
+		@Valid @RequestBody request: AdjustStockRequest,
+	): ResponseEntity<MaterialResponse> = ResponseEntity.ok(materialService.adjustStock(id, request))
+
+	@GetMapping("/{id}/movements")
+	fun listMovements(@PathVariable id: UUID): ResponseEntity<List<StockMovementResponse>> =
+		ResponseEntity.ok(materialService.listMovements(id))
 }

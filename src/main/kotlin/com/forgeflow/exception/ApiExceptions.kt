@@ -47,3 +47,6 @@ class InsufficientStockException(shortfalls: List<String>) :
 		HttpStatus.CONFLICT,
 		"Insufficient material stock to convert this quote: ${shortfalls.joinToString("; ")}",
 	)
+
+class InvalidStockAdjustmentException(message: String) :
+	ApiException(HttpStatus.CONFLICT, message)

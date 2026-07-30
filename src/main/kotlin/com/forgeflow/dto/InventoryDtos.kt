@@ -1,5 +1,6 @@
 package com.forgeflow.dto
 
+import com.forgeflow.domain.StockMovementReason
 import com.forgeflow.domain.UnitOfMeasure
 import jakarta.validation.constraints.DecimalMin
 import jakarta.validation.constraints.NotBlank
@@ -30,6 +31,11 @@ data class CreateMaterialRequest(
 	val reorderLevel: BigDecimal,
 )
 
+/**
+ * Stock is deliberately not editable here. It only ever changes through a recorded
+ * [StockMovementReason] — see [AdjustStockRequest] — so there is always a ledger entry explaining
+ * why the number is what it is.
+ */
 data class UpdateMaterialRequest(
 	@field:NotBlank
 	@field:Size(max = 255)
@@ -37,11 +43,26 @@ data class UpdateMaterialRequest(
 
 	@field:NotNull
 	@field:DecimalMin(value = "0", inclusive = true)
-	val stockQuantity: BigDecimal,
-
-	@field:NotNull
-	@field:DecimalMin(value = "0", inclusive = true)
 	val reorderLevel: BigDecimal,
+)
+
+data class AdjustStockRequest(
+	@field:NotNull
+	val quantityDelta: BigDecimal,
+
+	@field:Size(max = 500)
+	val note: String? = null,
+)
+
+data class StockMovementResponse(
+	val id: UUID,
+	val materialId: UUID,
+	val quantityDelta: BigDecimal,
+	val balanceAfter: BigDecimal,
+	val reason: StockMovementReason,
+	val referenceId: UUID?,
+	val note: String?,
+	val createdAt: Instant,
 )
 
 data class MaterialResponse(

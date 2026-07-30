@@ -59,7 +59,7 @@ com.forgeflow/
 ├── config/     Security (JWT filter, SecurityConfig), the tenant-aware transaction manager, OpenAPI
 ├── context/    TenantContext, CurrentUser — per-request, backed by Spring's RequestAttributes
 ├── domain/     JPA entities: Tenant, User, Product, PricingRule, Quote, QuoteLineItem, Order,
-│                             Material, ProductMaterial
+│                             Material, ProductMaterial, StockMovement
 ├── event/      OrderConvertedEvent + its Kafka publisher/listener
 ├── dto/        Request/response DTOs (kept separate from the entities)
 ├── repository/ Spring Data JPA repositories
@@ -176,6 +176,14 @@ constraint is the last safety net, in the same spirit as leaving tenant isolatio
 
 Products without a recipe use no material, since a shop may also resell items it buys in.
 
+Every change to a material's stock — the starting quantity, a manual correction, or a draw from
+converting a quote — is also written to `stock_movements`, an append-only ledger
+(`quantity_delta`, `balance_after`, `reason`, and for a draw the quote it came from). Stock on
+`materials` stays a fast running total to read, but the ledger means stock can be audited or
+rebuilt instead of just being a number nobody can explain. Manual corrections go through
+`POST /api/v1/materials/{id}/adjustments`; `stockQuantity` isn't editable through the plain update
+endpoint any more, so a stock change can never happen without a matching ledger entry.
+
 ## ER Diagram
 
 ```mermaid
@@ -189,6 +197,7 @@ erDiagram
     PRODUCT ||--o{ QUOTE_LINE_ITEM : "referenced by"
     PRODUCT ||--o{ PRODUCT_MATERIAL : "built from"
     MATERIAL ||--o{ PRODUCT_MATERIAL : "consumed by"
+    MATERIAL ||--o{ STOCK_MOVEMENT : "history of"
     QUOTE ||--o{ QUOTE_LINE_ITEM : contains
     QUOTE ||--o| ORDER : "converts to"
     USER ||--o{ QUOTE : creates
@@ -268,6 +277,15 @@ erDiagram
         uuid material_id FK
         decimal quantity_per_unit
     }
+    STOCK_MOVEMENT {
+        uuid id PK
+        uuid tenant_id FK
+        uuid material_id FK
+        decimal quantity_delta
+        decimal balance_after
+        string reason
+        uuid reference_id
+    }
 ```
 
 ## Getting Started
@@ -338,6 +356,14 @@ curl http://localhost:8080/api/v1/materials/$MATERIAL_ID -H "Authorization: Bear
 # Converting a quote the shop can't build is refused outright:
 # 409 "SHEET-01 needs 8.25 SQUARE_METER but only 6.7 in stock" — and the quote stays APPROVED.
 curl http://localhost:8080/api/v1/materials/low-stock -H "Authorization: Bearer $TOKEN"
+
+# 8. The stock movement ledger shows the draw from step 6, with the quote it came from
+curl http://localhost:8080/api/v1/materials/$MATERIAL_ID/movements -H "Authorization: Bearer $TOKEN"
+
+# A delivery comes in — top up stock by hand, which also writes a ledger entry
+curl -X POST http://localhost:8080/api/v1/materials/$MATERIAL_ID/adjustments \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"quantityDelta":50,"note":"delivery PO-1042"}'
 ```
 
 For the full list of endpoints see Swagger UI, or
@@ -382,9 +408,6 @@ Left out for now to keep the project easy to read:
 - Order states after conversion (shipped, delivered). Right now an order is just "confirmed".
 - A real consumer for `forgeflow.order-events`, such as notifications or an ERP/billing
   integration. `OrderEventListener` only logs for now.
-- A `stock_movements` table. Stock is currently a single running total on `materials`. Keeping a
-  history of every movement would make it auditable and let stock be rebuilt or corrected, which
-  any shop doing real inventory control needs eventually.
 - Purchase orders, so `low-stock` leads to actual restocking instead of only reporting a problem.
 
 Splitting this into microservices was on an earlier version of this roadmap, and I dropped it on

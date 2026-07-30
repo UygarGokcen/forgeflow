@@ -2,11 +2,14 @@ package com.forgeflow.service
 
 import com.forgeflow.domain.Product
 import com.forgeflow.domain.QuoteLineItem
+import com.forgeflow.domain.StockMovement
+import com.forgeflow.domain.StockMovementReason
 import com.forgeflow.domain.UnitOfMeasure
 import com.forgeflow.exception.InsufficientStockException
 import com.forgeflow.repository.MaterialRepository
 import com.forgeflow.repository.ProductMaterialRepository
 import com.forgeflow.repository.ProductRepository
+import com.forgeflow.repository.StockMovementRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
@@ -17,6 +20,7 @@ class InventoryService(
 	private val materialRepository: MaterialRepository,
 	private val productMaterialRepository: ProductMaterialRepository,
 	private val productRepository: ProductRepository,
+	private val stockMovementRepository: StockMovementRepository,
 ) {
 
 	/**
@@ -32,7 +36,7 @@ class InventoryService(
 	 * shouldn't block the conversion.
 	 */
 	@Transactional
-	fun consumeForConversion(tenantId: UUID, lineItems: List<QuoteLineItem>) {
+	fun consumeForConversion(tenantId: UUID, quoteId: UUID, lineItems: List<QuoteLineItem>) {
 		val required = requiredMaterialQuantities(tenantId, lineItems)
 		if (required.isEmpty()) return
 
@@ -52,11 +56,20 @@ class InventoryService(
 		}
 		if (shortfalls.isNotEmpty()) throw InsufficientStockException(shortfalls)
 
-		required.forEach { (materialId, needed) ->
+		val movements = required.map { (materialId, needed) ->
 			val material = materials.getValue(materialId)
 			material.stockQuantity = material.stockQuantity.subtract(needed)
+			StockMovement(
+				tenantId = tenantId,
+				materialId = materialId,
+				quantityDelta = needed.negate(),
+				balanceAfter = material.stockQuantity,
+				reason = StockMovementReason.CONSUMPTION,
+				referenceId = quoteId,
+			)
 		}
 		materialRepository.saveAll(materials.values)
+		stockMovementRepository.saveAll(movements)
 	}
 
 	/** Adds up how much of each material is needed, so a material used by two lines is only

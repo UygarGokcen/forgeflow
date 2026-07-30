@@ -158,6 +158,7 @@ class QuoteService(
 			// saved without its material having been taken out of stock.
 			inventoryService.consumeForConversion(
 				tenantId,
+				quoteId,
 				quoteLineItemRepository.findAllByTenantIdAndQuoteId(tenantId, quoteId),
 			)
 

@@ -4,15 +4,20 @@ import com.forgeflow.domain.Material
 import com.forgeflow.domain.Product
 import com.forgeflow.domain.ProductMaterial
 import com.forgeflow.domain.QuoteLineItem
+import com.forgeflow.domain.StockMovement
+import com.forgeflow.domain.StockMovementReason
 import com.forgeflow.domain.UnitOfMeasure
 import com.forgeflow.exception.InsufficientStockException
 import com.forgeflow.repository.MaterialRepository
 import com.forgeflow.repository.ProductMaterialRepository
 import com.forgeflow.repository.ProductRepository
+import com.forgeflow.repository.StockMovementRepository
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -25,14 +30,17 @@ class InventoryServiceTest {
 	private val materialRepository: MaterialRepository = mock()
 	private val productMaterialRepository: ProductMaterialRepository = mock()
 	private val productRepository: ProductRepository = mock()
+	private val stockMovementRepository: StockMovementRepository = mock()
 
 	private val inventoryService = InventoryService(
 		materialRepository,
 		productMaterialRepository,
 		productRepository,
+		stockMovementRepository,
 	)
 
 	private val tenantId: UUID = UUID.randomUUID()
+	private val quoteId: UUID = UUID.randomUUID()
 
 	/**
 	 * Compares by value rather than [BigDecimal.equals], which also compares scale — 96.7 and
@@ -55,7 +63,7 @@ class InventoryServiceTest {
 		// 2.0m x 1.5m = 3 m2, one of them.
 		val line = lineItem(panel, quantity = BigDecimal("1"), width = BigDecimal("2.0"), height = BigDecimal("1.5"))
 
-		inventoryService.consumeForConversion(tenantId, listOf(line))
+		inventoryService.consumeForConversion(tenantId, quoteId, listOf(line))
 
 		// 3 m2 * 1.1 = 3.3 drawn from 100.
 		assertQuantity("96.7", sheet.stockQuantity)
@@ -69,10 +77,27 @@ class InventoryServiceTest {
 
 		val line = lineItem(bolt, quantity = BigDecimal("40"))
 
-		inventoryService.consumeForConversion(tenantId, listOf(line))
+		inventoryService.consumeForConversion(tenantId, quoteId, listOf(line))
 
 		// 40 pieces * 0.25 kg = 10 kg.
 		assertQuantity("90", steel.stockQuantity)
+	}
+
+	@Test
+	fun `a successful draw records a CONSUMPTION stock movement referencing the quote`() {
+		val bolt = product("BOLT-01", UnitOfMeasure.PIECE)
+		val steel = material("STEEL-01", stock = BigDecimal("100"))
+		stubRecipe(bolt, steel, quantityPerUnit = BigDecimal("0.25"))
+
+		inventoryService.consumeForConversion(tenantId, quoteId, listOf(lineItem(bolt, quantity = BigDecimal("40"))))
+
+		val captor = argumentCaptor<List<StockMovement>>()
+		verify(stockMovementRepository).saveAll(captor.capture())
+		val movement = captor.firstValue.single()
+		assertEquals(StockMovementReason.CONSUMPTION, movement.reason)
+		assertEquals(quoteId, movement.referenceId)
+		assertEquals(0, BigDecimal("-10").compareTo(movement.quantityDelta))
+		assertEquals(0, BigDecimal("90").compareTo(movement.balanceAfter))
 	}
 
 	@Test
@@ -84,7 +109,7 @@ class InventoryServiceTest {
 		// Six units total against ten in stock — fine individually and fine combined.
 		val lines = listOf(lineItem(panel, BigDecimal("4")), lineItem(panel, BigDecimal("2")))
 
-		inventoryService.consumeForConversion(tenantId, lines)
+		inventoryService.consumeForConversion(tenantId, quoteId, lines)
 
 		assertQuantity("4", steel.stockQuantity)
 	}
@@ -98,7 +123,7 @@ class InventoryServiceTest {
 		val line = lineItem(panel, quantity = BigDecimal("9"))
 
 		assertThrows(InsufficientStockException::class.java) {
-			inventoryService.consumeForConversion(tenantId, listOf(line))
+			inventoryService.consumeForConversion(tenantId, quoteId, listOf(line))
 		}
 
 		assertQuantity("5", steel.stockQuantity)
@@ -111,7 +136,7 @@ class InventoryServiceTest {
 		whenever(productRepository.findAllByTenantIdAndIdIn(any(), any())).thenReturn(listOf(boughtIn))
 		whenever(productMaterialRepository.findAllByTenantIdAndProductIdIn(any(), any())).thenReturn(emptyList())
 
-		inventoryService.consumeForConversion(tenantId, listOf(lineItem(boughtIn, BigDecimal("3"))))
+		inventoryService.consumeForConversion(tenantId, quoteId, listOf(lineItem(boughtIn, BigDecimal("3"))))
 
 		verify(materialRepository, never()).lockAllByTenantIdAndIdIn(any(), any())
 	}

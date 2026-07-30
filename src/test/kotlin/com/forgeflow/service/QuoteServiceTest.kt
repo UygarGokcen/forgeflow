@@ -224,7 +224,7 @@ class QuoteServiceTest {
 		whenever(quoteRepository.findByTenantIdAndId(tenantId, quote.id!!)).thenReturn(quote)
 		doAnswer { it.arguments[0] as Quote }.whenever(quoteRepository).saveAndFlush(any())
 		whenever(quoteLineItemRepository.findAllByTenantIdAndQuoteId(tenantId, quote.id!!)).thenReturn(emptyList())
-		whenever(inventoryService.consumeForConversion(any(), any()))
+		whenever(inventoryService.consumeForConversion(any(), any(), any()))
 			.thenThrow(com.forgeflow.exception.InsufficientStockException(listOf("STEEL-01 is short")))
 
 		assertThrows(com.forgeflow.exception.InsufficientStockException::class.java) {
