@@ -62,7 +62,7 @@ com.forgeflow/
 ├── config/     Security (JWT filter, SecurityConfig), the tenant-aware transaction manager, OpenAPI
 ├── context/    TenantContext, CurrentUser — per-request, backed by Spring's RequestAttributes
 ├── domain/     JPA entities: Tenant, User, Product, PricingRule, Quote, QuoteLineItem, Order,
-│                             Material, ProductMaterial, StockMovement
+│                             Material, ProductMaterial, StockMovement, OrderNotification
 ├── event/      OrderConvertedEvent + its Kafka publisher/listener
 ├── dto/        Request/response DTOs (kept separate from the entities)
 ├── repository/ Spring Data JPA repositories
@@ -133,10 +133,28 @@ generic type erasure and throws a `ClassCastException`.
 
 ### Kafka: quote → order events
 
-Converting a quote publishes an `OrderConvertedEvent` to the `forgeflow.order-events` topic. This
-is where a notification service, an ERP integration, or a billing system would plug in later.
-Right now [`OrderEventListener`](src/main/kotlin/com/forgeflow/event/OrderEventListener.kt) just
-logs the event, to show that it really is consumable.
+Converting a quote publishes an `OrderConvertedEvent` to the `forgeflow.order-events` topic.
+[`OrderEventListener`](src/main/kotlin/com/forgeflow/event/OrderEventListener.kt) consumes it and
+hands off to [`NotificationService`](src/main/kotlin/com/forgeflow/service/NotificationService.kt),
+which writes an `order_notifications` row recording that the order was confirmed to someone. There's
+no real email/SMS provider behind it, but the row is the durable, queryable part a "just log it"
+consumer can't give you — proof the order was actually notified about, not just that a message was
+read off the topic. An ERP integration or billing system would plug into the same topic later.
+
+Kafka only guarantees a message is delivered *at least* once. If the consumer crashes after writing
+that row but before its offset is committed, the same event is redelivered, and a naive consumer
+would notify the same order twice. `NotificationService` checks first, and a unique constraint on
+`(tenant_id, order_id, channel)` is the fallback if two redeliveries race past that check — the
+same "check first, database constraint as the real guarantee" shape as `stock_quantity >= 0` and
+RLS elsewhere in this project.
+
+A Kafka listener thread also isn't handling an HTTP request, so it has nothing to hang
+`TenantContext` on — normally that's backed by the request's own attributes. `OrderEventListener`
+wraps its work in `TenantContext.runWithTenant(event.tenantId) { ... }`, which binds a minimal
+non-web context for that one call and always unbinds it afterwards. Since listener threads are
+pooled and reused for the next message, skipping the unbind would leak one order's tenant into the
+next message read on the same thread — the same risk `TenantContext` was built to avoid on the
+request path in the first place.
 
 `QuoteService.updateStatus` doesn't call `KafkaTemplate.send()` itself. It raises a normal Spring
 `ApplicationEvent`, and
@@ -201,6 +219,7 @@ erDiagram
     PRODUCT ||--o{ PRODUCT_MATERIAL : "built from"
     MATERIAL ||--o{ PRODUCT_MATERIAL : "consumed by"
     MATERIAL ||--o{ STOCK_MOVEMENT : "history of"
+    ORDER ||--o{ ORDER_NOTIFICATION : "notified via"
     QUOTE ||--o{ QUOTE_LINE_ITEM : contains
     QUOTE ||--o| ORDER : "converts to"
     USER ||--o{ QUOTE : creates
@@ -290,6 +309,13 @@ erDiagram
         string reason
         uuid reference_id
     }
+    ORDER_NOTIFICATION {
+        uuid id PK
+        uuid tenant_id FK
+        uuid order_id FK
+        string channel
+        string recipient
+    }
 ```
 
 ## Getting Started
@@ -364,6 +390,9 @@ curl -X PUT http://localhost:8080/api/v1/orders/$ORDER_ID/status \
   -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"status":"SHIPPED"}'
 # Jumping straight to DELIVERED from here works; jumping back to CONFIRMED is a 409.
 
+# 8. The Kafka consumer already wrote a notification record for step 6, by the time this runs
+curl http://localhost:8080/api/v1/orders/$ORDER_ID/notifications -H "Authorization: Bearer $TOKEN"
+
 # Converting a quote the shop can't build is refused outright:
 # 409 "SHEET-01 needs 8.25 SQUARE_METER but only 6.7 in stock" — and the quote stays APPROVED.
 curl http://localhost:8080/api/v1/materials/low-stock -H "Authorization: Bearer $TOKEN"
@@ -416,8 +445,8 @@ stays fast and doesn't need Docker. CI runs both on every push.
 
 Left out for now to keep the project easy to read:
 
-- A real consumer for `forgeflow.order-events`, such as notifications or an ERP/billing
-  integration. `OrderEventListener` only logs for now.
+- An actual email/SMS provider behind `NotificationService`. It writes a real
+  `order_notifications` record today, but sending is still simulated with a log line.
 - Purchase orders, so `low-stock` leads to actual restocking instead of only reporting a problem.
 
 Splitting this into microservices was on an earlier version of this roadmap, and I dropped it on

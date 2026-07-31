@@ -1,7 +1,9 @@
 package com.forgeflow.controller
 
+import com.forgeflow.dto.OrderNotificationResponse
 import com.forgeflow.dto.OrderResponse
 import com.forgeflow.dto.UpdateOrderStatusRequest
+import com.forgeflow.service.NotificationService
 import com.forgeflow.service.OrderService
 import jakarta.validation.Valid
 import org.springframework.http.ResponseEntity
@@ -17,6 +19,7 @@ import java.util.UUID
 @RequestMapping("/api/v1/orders")
 class OrderController(
 	private val orderService: OrderService,
+	private val notificationService: NotificationService,
 ) {
 
 	@GetMapping
@@ -30,4 +33,8 @@ class OrderController(
 		@PathVariable id: UUID,
 		@Valid @RequestBody request: UpdateOrderStatusRequest,
 	): ResponseEntity<OrderResponse> = ResponseEntity.ok(orderService.updateStatus(id, request.status))
+
+	@GetMapping("/{id}/notifications")
+	fun listNotifications(@PathVariable id: UUID): ResponseEntity<List<OrderNotificationResponse>> =
+		ResponseEntity.ok(notificationService.listForOrder(id))
 }

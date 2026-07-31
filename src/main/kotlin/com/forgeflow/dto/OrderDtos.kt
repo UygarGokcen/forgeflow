@@ -1,5 +1,6 @@
 package com.forgeflow.dto
 
+import com.forgeflow.domain.NotificationChannel
 import com.forgeflow.domain.OrderStatus
 import jakarta.validation.constraints.NotNull
 import java.math.BigDecimal
@@ -21,4 +22,12 @@ data class OrderResponse(
 data class UpdateOrderStatusRequest(
 	@field:NotNull
 	val status: OrderStatus,
+)
+
+data class OrderNotificationResponse(
+	val id: UUID,
+	val orderId: UUID,
+	val channel: NotificationChannel,
+	val recipient: String,
+	val createdAt: Instant,
 )
