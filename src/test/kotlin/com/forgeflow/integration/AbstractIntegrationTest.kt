@@ -73,6 +73,23 @@ abstract class AbstractIntegrationTest {
 	@Autowired
 	lateinit var objectMapper: ObjectMapper
 
+	/**
+	 * Polls [condition] until it returns a non-null result or [timeoutMs] passes, then returns it —
+	 * or fails the test if it never did.
+	 *
+	 * For asserting on the Kafka consumer's side effects: `OrderEventListener` reads the topic on
+	 * its own thread, so there's no way to know from the test's thread exactly when it has finished
+	 * — the record it wrote just has to be waited for.
+	 */
+	protected fun <T> awaitUntil(timeoutMs: Long = 5000, intervalMs: Long = 200, condition: () -> T?): T {
+		val deadline = System.currentTimeMillis() + timeoutMs
+		while (System.currentTimeMillis() < deadline) {
+			condition()?.let { return it }
+			Thread.sleep(intervalMs)
+		}
+		return condition() ?: error("Condition was not met within ${timeoutMs}ms")
+	}
+
 	/** Registers a new tenant with a unique slug and returns its admin's token. */
 	protected fun registerTenant(slugPrefix: String): AuthResponse {
 		val slug = "$slugPrefix-${UUID.randomUUID().toString().take(8)}"
