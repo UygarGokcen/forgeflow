@@ -53,3 +53,9 @@ class InvalidStockAdjustmentException(message: String) :
 
 class InvalidOrderStatusTransitionException(from: String, to: String) :
 	ApiException(HttpStatus.CONFLICT, "Cannot transition an order from $from to $to")
+
+class InvalidPurchaseOrderStatusTransitionException(from: String, to: String) :
+	ApiException(HttpStatus.CONFLICT, "Cannot transition a purchase order from $from to $to")
+
+class EmptyPurchaseOrderException :
+	ApiException(HttpStatus.BAD_REQUEST, "A purchase order must have at least one line item")

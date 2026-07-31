@@ -20,6 +20,9 @@ enum class StockMovementReason {
 
 	/** Stock drawn automatically when a quote converts to an order. */
 	CONSUMPTION,
+
+	/** Stock added automatically when a purchase order is marked received. */
+	PURCHASE_RECEIPT,
 }
 
 /**

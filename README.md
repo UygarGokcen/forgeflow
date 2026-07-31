@@ -62,7 +62,8 @@ com.forgeflow/
 ├── config/     Security (JWT filter, SecurityConfig), the tenant-aware transaction manager, OpenAPI
 ├── context/    TenantContext, CurrentUser — per-request, backed by Spring's RequestAttributes
 ├── domain/     JPA entities: Tenant, User, Product, PricingRule, Quote, QuoteLineItem, Order,
-│                             Material, ProductMaterial, StockMovement, OrderNotification
+│                             Material, ProductMaterial, StockMovement, OrderNotification,
+│                             PurchaseOrder, PurchaseOrderLineItem
 ├── event/      OrderConvertedEvent + its Kafka publisher/listener
 ├── dto/        Request/response DTOs (kept separate from the entities)
 ├── repository/ Spring Data JPA repositories
@@ -205,6 +206,23 @@ rebuilt instead of just being a number nobody can explain. Manual corrections go
 `POST /api/v1/materials/{id}/adjustments`; `stockQuantity` isn't editable through the plain update
 endpoint any more, so a stock change can never happen without a matching ledger entry.
 
+### Purchase orders: closing the loop on `low-stock`
+
+`materials/low-stock` only ever reported a problem. A `PurchaseOrder` is what actually fixes it: it
+has its own state machine (`DRAFT → SUBMITTED → RECEIVED`, or `CANCELLED` before receipt) tracked
+in [`PurchaseOrderService`](src/main/kotlin/com/forgeflow/service/PurchaseOrderService.kt), the
+same explicit-map shape as the quote and order lifecycles.
+
+Marking one `RECEIVED` is the only thing that changes stock, and it does so through the same
+`stock_movements` ledger a quote conversion draws from — a `PURCHASE_RECEIPT` movement referencing
+the purchase order, in the same transaction as the status change, using the same
+`SELECT ... FOR UPDATE` row locking as `InventoryService`. That matters because a receipt and a
+conversion can land at the same moment on the same material; without the lock, both could read the
+same stock level and one update could clobber the other.
+
+Ordering the same material twice on one purchase order isn't rejected — the quantities are just
+added together, since that's a data-entry slip worth fixing rather than a real error.
+
 ## ER Diagram
 
 ```mermaid
@@ -219,6 +237,8 @@ erDiagram
     PRODUCT ||--o{ PRODUCT_MATERIAL : "built from"
     MATERIAL ||--o{ PRODUCT_MATERIAL : "consumed by"
     MATERIAL ||--o{ STOCK_MOVEMENT : "history of"
+    MATERIAL ||--o{ PURCHASE_ORDER_LINE_ITEM : "restocked by"
+    PURCHASE_ORDER ||--o{ PURCHASE_ORDER_LINE_ITEM : contains
     ORDER ||--o{ ORDER_NOTIFICATION : "notified via"
     QUOTE ||--o{ QUOTE_LINE_ITEM : contains
     QUOTE ||--o| ORDER : "converts to"
@@ -316,6 +336,21 @@ erDiagram
         string channel
         string recipient
     }
+    PURCHASE_ORDER {
+        uuid id PK
+        uuid tenant_id FK
+        string po_number
+        string supplier_name
+        string status
+        uuid created_by FK
+    }
+    PURCHASE_ORDER_LINE_ITEM {
+        uuid id PK
+        uuid tenant_id FK
+        uuid purchase_order_id FK
+        uuid material_id FK
+        decimal quantity_ordered
+    }
 ```
 
 ## Getting Started
@@ -397,6 +432,20 @@ curl http://localhost:8080/api/v1/orders/$ORDER_ID/notifications -H "Authorizati
 # 409 "SHEET-01 needs 8.25 SQUARE_METER but only 6.7 in stock" — and the quote stays APPROVED.
 curl http://localhost:8080/api/v1/materials/low-stock -H "Authorization: Bearer $TOKEN"
 
+# 9. Close the loop: place a purchase order for the material that's now running low
+PO_ID=$(curl -s -X POST http://localhost:8080/api/v1/purchase-orders \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"supplierName":"Acme Steel","lineItems":[{"materialId":"'"$MATERIAL_ID"'","quantity":50}]}' | jq -r .id)
+
+curl -X PUT http://localhost:8080/api/v1/purchase-orders/$PO_ID/status \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"status":"SUBMITTED"}'
+curl -X PUT http://localhost:8080/api/v1/purchase-orders/$PO_ID/status \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"status":"RECEIVED"}'
+
+# The material is back above its reorder level, and the ledger shows exactly where it came from
+curl http://localhost:8080/api/v1/materials/$MATERIAL_ID -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8080/api/v1/materials/$MATERIAL_ID/movements -H "Authorization: Bearer $TOKEN"
+
 # 8. The stock movement ledger shows the draw from step 6, with the quote it came from
 curl http://localhost:8080/api/v1/materials/$MATERIAL_ID/movements -H "Authorization: Bearer $TOKEN"
 
@@ -447,7 +496,6 @@ Left out for now to keep the project easy to read:
 
 - An actual email/SMS provider behind `NotificationService`. It writes a real
   `order_notifications` record today, but sending is still simulated with a log line.
-- Purchase orders, so `low-stock` leads to actual restocking instead of only reporting a problem.
 
 Splitting this into microservices was on an earlier version of this roadmap, and I dropped it on
 purpose. There is no scale, team size, or deployment pressure here that would make splitting a
