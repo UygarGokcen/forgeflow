@@ -2,11 +2,27 @@ package com.forgeflow.domain
 
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
+import jakarta.persistence.EnumType
+import jakarta.persistence.Enumerated
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.Id
 import jakarta.persistence.Table
 import java.math.BigDecimal
 import java.util.UUID
+
+/**
+ * Where an order is in the shop, after the quote that produced it has already been paid for /
+ * committed to. This is a separate lifecycle from [QuoteStatus] on purpose: a quote's status is
+ * about whether the customer has agreed to buy, an order's status is about whether the shop has
+ * built and shipped what was agreed to.
+ */
+enum class OrderStatus {
+	CONFIRMED,
+	IN_PRODUCTION,
+	SHIPPED,
+	DELIVERED,
+	CANCELLED,
+}
 
 /**
  * The confirmed record of a [Quote] after it moves to CONVERTED_TO_ORDER.
@@ -38,6 +54,10 @@ class Order(
 
 	@Column(name = "created_by", nullable = false)
 	var createdBy: UUID,
+
+	@Enumerated(EnumType.STRING)
+	@Column(nullable = false)
+	var status: OrderStatus = OrderStatus.CONFIRMED,
 
 	@Id
 	@GeneratedValue

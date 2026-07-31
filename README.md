@@ -37,7 +37,10 @@ that can actually be extended in code.
 - **A real quote lifecycle.** `DRAFT → APPROVED → CONVERTED_TO_ORDER` (or `REJECTED`) is an
   explicit state machine, not a free-text status column. Invalid jumps are rejected and an empty
   quote can't be approved. Converting a quote creates a real `Order` row with its own table and
-  number, instead of just flipping a flag.
+  number, instead of just flipping a flag. The order then has its own lifecycle —
+  `CONFIRMED → IN_PRODUCTION → SHIPPED → DELIVERED`, with `CANCELLED` reachable up until it ships
+  — because whether the shop has built and shipped the job is a different question from whether
+  the customer agreed to buy it.
 - **Inventory that matches how a workshop really works.** Stock is kept on raw *materials*, not
   on finished goods, because nobody keeps pre-cut 2m × 1.5m panels on a shelf. Each product has a
   recipe of how much material one unit uses. Converting a quote subtracts that material in the
@@ -259,6 +262,7 @@ erDiagram
         string order_number
         string customer_name
         decimal total_amount
+        string status
         uuid created_by FK
     }
     MATERIAL {
@@ -350,8 +354,15 @@ curl -X PUT http://localhost:8080/api/v1/quotes/$QUOTE_ID/status \
   -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"status":"CONVERTED_TO_ORDER"}'
 
 # 7. The order exists as its own resource, and 3.3 m2 of sheet is gone (10 -> 6.7)
-curl http://localhost:8080/api/v1/orders -H "Authorization: Bearer $TOKEN"
+ORDER_ID=$(curl -s http://localhost:8080/api/v1/orders -H "Authorization: Bearer $TOKEN" | jq -r '.[0].id')
 curl http://localhost:8080/api/v1/materials/$MATERIAL_ID -H "Authorization: Bearer $TOKEN"
+
+# Move the order through its own lifecycle as the shop builds and ships it
+curl -X PUT http://localhost:8080/api/v1/orders/$ORDER_ID/status \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"status":"IN_PRODUCTION"}'
+curl -X PUT http://localhost:8080/api/v1/orders/$ORDER_ID/status \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"status":"SHIPPED"}'
+# Jumping straight to DELIVERED from here works; jumping back to CONFIRMED is a 409.
 
 # Converting a quote the shop can't build is refused outright:
 # 409 "SHEET-01 needs 8.25 SQUARE_METER but only 6.7 in stock" — and the quote stays APPROVED.
@@ -405,7 +416,6 @@ stays fast and doesn't need Docker. CI runs both on every push.
 
 Left out for now to keep the project easy to read:
 
-- Order states after conversion (shipped, delivered). Right now an order is just "confirmed".
 - A real consumer for `forgeflow.order-events`, such as notifications or an ERP/billing
   integration. `OrderEventListener` only logs for now.
 - Purchase orders, so `low-stock` leads to actual restocking instead of only reporting a problem.

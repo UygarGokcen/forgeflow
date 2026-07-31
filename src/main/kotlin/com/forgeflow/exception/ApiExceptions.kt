@@ -50,3 +50,6 @@ class InsufficientStockException(shortfalls: List<String>) :
 
 class InvalidStockAdjustmentException(message: String) :
 	ApiException(HttpStatus.CONFLICT, message)
+
+class InvalidOrderStatusTransitionException(from: String, to: String) :
+	ApiException(HttpStatus.CONFLICT, "Cannot transition an order from $from to $to")
