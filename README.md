@@ -243,6 +243,29 @@ same stock level and one update could clobber the other.
 Ordering the same material twice on one purchase order isn't rejected — the quantities are just
 added together, since that's a data-entry slip worth fixing rather than a real error.
 
+### Concurrent updates: two kinds of locking
+
+Two requests touching the same row at the same time are handled in one of two ways, depending on
+what's at stake:
+
+- **Pessimistic (`SELECT ... FOR UPDATE`)** for stock. Quote conversion, purchase-order receipt and
+  manual adjustments all lock the material rows before reading the stock level, so they queue up
+  behind each other instead of failing. Stock is the hot path where a retry would be annoying.
+- **Optimistic (`@Version`)** on quotes, orders, purchase orders and materials. Every update checks
+  the version it read and bumps it. If another request committed a change in between, the update
+  matches no row and the request gets a **409** with nothing saved, so it can simply be retried.
+
+The optimistic check closes real lost-update bugs that existed before it. Renaming a material read
+the row without a lock and wrote every column back, so a quote conversion committing in between
+had its stock draw silently undone. Two line items added to the same quote at once could each
+recompute the total without seeing the other's line. And converting the same quote twice at once
+let both requests see `APPROVED`; the second one then hit the unique constraint on
+`orders.quote_id` and surfaced as a 500.
+
+This protects against concurrent *requests*. A client holding a view that's minutes old is mostly
+covered by the state machines (a stale "convert" on an already converted quote is a 409 anyway);
+exposing the version through `ETag`/`If-Match` would be the next step if that ever mattered.
+
 ## ER Diagram
 
 ```mermaid

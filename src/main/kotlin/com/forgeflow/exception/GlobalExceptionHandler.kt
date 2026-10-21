@@ -1,8 +1,10 @@
 package com.forgeflow.exception
 
+import jakarta.persistence.OptimisticLockException
 import jakarta.servlet.http.HttpServletRequest
 import org.slf4j.LoggerFactory
 import org.springframework.dao.InvalidDataAccessApiUsageException
+import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.data.mapping.PropertyReferenceException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -43,6 +45,18 @@ class GlobalExceptionHandler {
 			),
 		)
 	}
+
+	/**
+	 * Two requests changed the same row at the same time and this one lost the race (see the
+	 * `@Version` columns added in V10). Nothing was saved, so retrying is safe.
+	 */
+	@ExceptionHandler(OptimisticLockingFailureException::class, OptimisticLockException::class)
+	fun handleConcurrentUpdate(ex: RuntimeException, request: HttpServletRequest): ResponseEntity<ApiError> =
+		respond(
+			HttpStatus.CONFLICT,
+			"This record was changed by another request at the same time. Reload it and try again.",
+			request,
+		)
 
 	/**
 	 * `?sort=` names an entity property; an unknown one is a client mistake, not a server error.

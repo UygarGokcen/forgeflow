@@ -7,6 +7,7 @@ import jakarta.persistence.Enumerated
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.Id
 import jakarta.persistence.Table
+import jakarta.persistence.Version
 import java.math.BigDecimal
 import java.util.UUID
 
@@ -53,7 +54,13 @@ class PurchaseOrder(
 	@Id
 	@GeneratedValue
 	var id: UUID? = null,
-) : AuditableEntity()
+) : AuditableEntity() {
+
+	/** Optimistic-lock version, checked and bumped on every update. See V10 for why. */
+	@Version
+	@Column(nullable = false)
+	var version: Long = 0
+}
 
 /** How much of one material was ordered on a [PurchaseOrder]. */
 @Entity

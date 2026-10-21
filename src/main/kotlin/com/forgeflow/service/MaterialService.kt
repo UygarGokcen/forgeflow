@@ -95,7 +95,11 @@ class MaterialService(
 	 */
 	@Transactional
 	fun adjustStock(id: UUID, request: AdjustStockRequest): MaterialResponse {
-		val material = findOwned(id)
+		// Same row lock quote conversions and purchase-order receipts take, so a manual adjustment
+		// waits for them instead of computing from a stock level that's about to change.
+		val material = materialRepository.lockAllByTenantIdAndIdIn(TenantContext.getCurrentTenant(), listOf(id))
+			.singleOrNull()
+			?: throw ResourceNotFoundException("Material $id not found")
 		val resulting = material.stockQuantity.add(request.quantityDelta)
 		if (resulting < BigDecimal.ZERO) {
 			throw InvalidStockAdjustmentException(

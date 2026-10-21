@@ -90,7 +90,7 @@ class MaterialServiceTest {
 	@Test
 	fun `a positive adjustment increases stock and records the delta`() {
 		val material = material(stock = BigDecimal("50"))
-		whenever(materialRepository.findByTenantIdAndId(tenantId, material.id!!)).thenReturn(material)
+		whenever(materialRepository.lockAllByTenantIdAndIdIn(tenantId, listOf(material.id!!))).thenReturn(listOf(material))
 		doReturn(material).whenever(materialRepository).saveAndFlush(any())
 
 		materialService.adjustStock(material.id!!, AdjustStockRequest(quantityDelta = BigDecimal("20"), note = "delivery"))
@@ -105,7 +105,7 @@ class MaterialServiceTest {
 	@Test
 	fun `an adjustment that would take stock below zero is rejected and nothing is saved`() {
 		val material = material(stock = BigDecimal("5"))
-		whenever(materialRepository.findByTenantIdAndId(tenantId, material.id!!)).thenReturn(material)
+		whenever(materialRepository.lockAllByTenantIdAndIdIn(tenantId, listOf(material.id!!))).thenReturn(listOf(material))
 
 		assertThrows(InvalidStockAdjustmentException::class.java) {
 			materialService.adjustStock(material.id!!, AdjustStockRequest(quantityDelta = BigDecimal("-10")))
