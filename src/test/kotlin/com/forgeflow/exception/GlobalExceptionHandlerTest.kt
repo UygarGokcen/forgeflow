@@ -1,14 +1,23 @@
 package com.forgeflow.exception
 
+import com.fasterxml.jackson.databind.exc.InvalidFormatException
 import com.forgeflow.domain.Material
 import com.forgeflow.domain.Product
+import com.forgeflow.domain.UnitOfMeasure
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.springframework.dao.InvalidDataAccessApiUsageException
 import org.springframework.data.mapping.PropertyReferenceException
 import org.springframework.data.util.TypeInformation
+import org.springframework.http.HttpMethod
+import org.springframework.http.converter.HttpMessageNotReadableException
+import org.springframework.mock.http.MockHttpInputMessage
 import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.orm.ObjectOptimisticLockingFailureException
+import org.springframework.security.access.AccessDeniedException
+import org.springframework.web.HttpMediaTypeNotSupportedException
+import org.springframework.web.HttpRequestMethodNotSupportedException
+import org.springframework.web.servlet.resource.NoResourceFoundException
 import java.util.UUID
 
 class GlobalExceptionHandlerTest {
@@ -34,6 +43,38 @@ class GlobalExceptionHandlerTest {
 			400,
 			handler.handleBadSort(InvalidDataAccessApiUsageException("wrapped", propertyError), request).statusCode.value(),
 		)
+	}
+
+	@Test
+	fun `client mistakes Spring MVC detects keep their 4xx instead of becoming a 500`() {
+		fun status(ex: Exception) = handler.handleUnexpected(ex, request).statusCode.value()
+
+		assertEquals(404, status(NoResourceFoundException(HttpMethod.GET, "api/v1/nope")))
+		assertEquals(405, status(HttpRequestMethodNotSupportedException("DELETE")))
+		assertEquals(415, status(HttpMediaTypeNotSupportedException("text/plain")))
+		assertEquals(400, status(HttpMessageNotReadableException("bad json", MockHttpInputMessage(ByteArray(0)))))
+	}
+
+	@Test
+	fun `a body with a bad value names the field it was in`() {
+		val cause = InvalidFormatException.from(null, "not one of the values", "BANANA", UnitOfMeasure::class.java)
+			.apply { prependPath(Object(), "unitOfMeasure") }
+		val ex = HttpMessageNotReadableException("bad enum", cause, MockHttpInputMessage(ByteArray(0)))
+
+		val response = handler.handleUnexpected(ex, request)
+
+		assertEquals(400, response.statusCode.value())
+		assertEquals("Invalid value for 'unitOfMeasure'", response.body!!.message)
+	}
+
+	@Test
+	fun `a method-security denial is a 403`() {
+		assertEquals(403, handler.handleAccessDenied(AccessDeniedException("no"), request).statusCode.value())
+	}
+
+	@Test
+	fun `a genuine bug is still a 500`() {
+		assertEquals(500, handler.handleUnexpected(IllegalStateException("boom"), request).statusCode.value())
 	}
 
 	@Test
