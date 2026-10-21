@@ -2,6 +2,7 @@ package com.forgeflow.integration
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.forgeflow.dto.AuthResponse
+import com.forgeflow.dto.PageResponse
 import com.forgeflow.dto.RegisterTenantRequest
 import org.junit.jupiter.api.Tag
 import org.springframework.beans.factory.annotation.Autowired
@@ -90,9 +91,16 @@ abstract class AbstractIntegrationTest {
 		return condition() ?: error("Condition was not met within ${timeoutMs}ms")
 	}
 
-	/** The `content` of a paged list response (see `PageResponse`), as the given element type. */
-	protected fun <T> pageContent(json: String, arrayType: Class<Array<T>>): List<T> =
-		objectMapper.treeToValue(objectMapper.readTree(json).get("content"), arrayType).toList()
+	/**
+	 * The `content` of a paged list response, as the given element type.
+	 *
+	 * Reads straight into [PageResponse] rather than through `readTree`: a JSON tree holds decimals
+	 * as doubles, which turns an amount like 60.0000 into 60.0 before it ever reaches a BigDecimal.
+	 */
+	protected fun <T> pageContent(json: String, arrayType: Class<Array<T>>): List<T> {
+		val type = objectMapper.typeFactory.constructParametricType(PageResponse::class.java, arrayType.componentType)
+		return objectMapper.readValue<PageResponse<T>>(json, type).content
+	}
 
 	/** Registers a new tenant with a unique slug and returns its admin's token. */
 	protected fun registerTenant(slugPrefix: String): AuthResponse {
