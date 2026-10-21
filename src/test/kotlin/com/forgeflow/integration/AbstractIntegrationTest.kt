@@ -77,11 +77,11 @@ abstract class AbstractIntegrationTest {
 	 * Polls [condition] until it returns a non-null result or [timeoutMs] passes, then returns it —
 	 * or fails the test if it never did.
 	 *
-	 * For asserting on the Kafka consumer's side effects: `OrderEventListener` reads the topic on
-	 * its own thread, so there's no way to know from the test's thread exactly when it has finished
-	 * — the record it wrote just has to be waited for.
+	 * For asserting on the Kafka consumer's side effects: the outbox relay polls on its own
+	 * schedule and `OrderEventListener` reads the topic on its own thread, so there's no way to
+	 * know from the test's thread exactly when they have finished — the record has to be waited for.
 	 */
-	protected fun <T> awaitUntil(timeoutMs: Long = 5000, intervalMs: Long = 200, condition: () -> T?): T {
+	protected fun <T> awaitUntil(timeoutMs: Long = 15000, intervalMs: Long = 200, condition: () -> T?): T {
 		val deadline = System.currentTimeMillis() + timeoutMs
 		while (System.currentTimeMillis() < deadline) {
 			condition()?.let { return it }

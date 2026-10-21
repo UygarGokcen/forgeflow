@@ -157,15 +157,35 @@ pooled and reused for the next message, skipping the unbind would leak one order
 next message read on the same thread — the same risk `TenantContext` was built to avoid on the
 request path in the first place.
 
-`QuoteService.updateStatus` doesn't call `KafkaTemplate.send()` itself. It raises a normal Spring
-`ApplicationEvent`, and
-[`OrderEventPublisher`](src/main/kotlin/com/forgeflow/event/OrderEventPublisher.kt) sends it to
-Kafka from a `@TransactionalEventListener(phase = AFTER_COMMIT)`.
+#### Getting the event out: a transactional outbox
 
-The order of those two things matters. If the message were sent inside the transaction and the
-transaction then rolled back, Kafka would hold an event for an order that doesn't exist in the
-database. `AFTER_COMMIT` means the message is only sent after the order is really saved. And if
-Kafka is down, the error is logged instead of failing a conversion the database already committed.
+`QuoteService.updateStatus` doesn't call `KafkaTemplate.send()` itself. Writing to Postgres and
+sending to Kafka are two different systems, and there is no transaction that covers both:
+
+- send *inside* the transaction, and a later rollback leaves Kafka holding an event for an order
+  that doesn't exist;
+- send *after* commit, and if Kafka is down at that moment the order exists but its event is gone.
+
+An earlier version of this project did the second, and simply logged the failure. Now
+[`OutboxWriter`](src/main/kotlin/com/forgeflow/event/OutboxWriter.kt) stores the event in an
+`outbox_events` row in the **same transaction** that saves the order, so the event exists if and
+only if the order does. [`OutboxRelay`](src/main/kotlin/com/forgeflow/event/OutboxRelay.kt) polls
+that table every second, sends pending rows to Kafka, waits for the broker's ack and only then
+marks them published. If Kafka is down, rows just wait (with the attempt count and last error
+recorded) and go out once it's back.
+
+A few details that matter:
+
+- The relay locks the rows it is working on with `FOR UPDATE SKIP LOCKED`, so running several app
+  instances doesn't send an event twice in the normal case — each instance skips rows another one
+  already holds.
+- Delivery is still at-least-once: if the app dies after Kafka accepted a message but before the
+  row is marked published, it's sent again. That is exactly the redelivery case the consumer is
+  already idempotent against.
+- An event that fails 10 times is no longer retried, so one broken event can't be retried forever.
+  It stays in the table to be looked at.
+- `outbox_events` has no row-level security, on purpose: the relay runs with no tenant bound and has
+  to see every tenant's pending events, and nothing on the request path reads the table.
 
 Docker Compose runs a single Kafka broker in KRaft mode (no Zookeeper). One setting there is easy
 to miss: `offsets.topic.replication.factor` defaults to `3`, and with one broker the internal

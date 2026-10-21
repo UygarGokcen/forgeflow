@@ -40,6 +40,11 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        # With the broker unreachable, send() would otherwise block the outbox relay for 60s per
+        # event waiting on metadata. The event is safe in the outbox either way, so fail fast and
+        # let the next poll retry.
+        max.block.ms: 10000
     consumer:
       group-id: forgeflow-backend
       auto-offset-reset: earliest
@@ -62,3 +67,7 @@ forgeflow:
   jwt:
     secret: ${FORGEFLOW_JWT_SECRET:change-me-in-production-this-is-a-dev-only-secret-value}
     expiration-minutes: 60
+  outbox:
+    # How often OutboxRelay looks for events to send to Kafka, and how many it takes per run.
+    poll-interval-ms: 1000
+    batch-size: 50
