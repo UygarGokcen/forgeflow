@@ -6,6 +6,7 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.forgeflow.config.ORDER_EVENTS_TOPIC
 import com.forgeflow.domain.OutboxEvent
 import com.forgeflow.repository.OutboxEventRepository
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -32,8 +33,12 @@ class OutboxTest {
 	private val outboxEventRepository: OutboxEventRepository = mock()
 	private val kafkaTemplate: KafkaTemplate<String, OrderConvertedEvent> = mock()
 
+	private val meterRegistry = SimpleMeterRegistry()
+
 	private val writer = OutboxWriter(outboxEventRepository, objectMapper)
-	private val publisher = OutboxPublisher(outboxEventRepository, kafkaTemplate, objectMapper, batchSize = 50)
+	private val publisher = OutboxPublisher(outboxEventRepository, kafkaTemplate, objectMapper, meterRegistry, batchSize = 50)
+
+	private fun counter(name: String) = meterRegistry.counter(name).count()
 
 	private val tenantId: UUID = UUID.randomUUID()
 
@@ -90,6 +95,7 @@ class OutboxTest {
 		assertEquals(1, published)
 		assertNotNull(row.publishedAt)
 		assertEquals(0, row.attempts)
+		assertEquals(1.0, counter("forgeflow.outbox.published"))
 	}
 
 	@Test
@@ -105,6 +111,8 @@ class OutboxTest {
 		assertNull(row.publishedAt)
 		assertEquals(1, row.attempts)
 		assertEquals("broker unavailable", row.lastError)
+		assertEquals(1.0, counter("forgeflow.outbox.send.failures"))
+		assertEquals(0.0, counter("forgeflow.outbox.published"))
 	}
 
 	@Test

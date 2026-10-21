@@ -63,10 +63,29 @@ server:
   port: 8080
 
 management:
+  # Actuator lives on its own port, which docker-compose only binds to localhost. Prometheus
+  # metrics cover the whole platform, so they must not be reachable through the public API port
+  # where any tenant's admin could read them.
+  server:
+    port: 8081
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      # /actuator/health/liveness and /readiness, for an orchestrator's probes.
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+logging:
+  pattern:
+    # Every log line carries the request and tenant it belongs to (see RequestIdFilter and
+    # JwtAuthenticationFilter), so one request can be followed through the logs.
+    level: "%5p [tenant=%X{tenantId:-} req=%X{requestId:-}]"
 
 forgeflow:
   jwt:

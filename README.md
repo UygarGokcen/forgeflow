@@ -408,6 +408,29 @@ This starts Postgres, Redis and a single Kafka broker. Flyway runs the migration
 boots, and the API is served on `http://localhost:8080`. There is also Swagger UI with an
 "Authorize" button for the JWT: `http://localhost:8080/swagger-ui.html`.
 
+Actuator is on a separate port, `http://localhost:8081/actuator` (`/health`, `/health/liveness`,
+`/health/readiness`, `/info`, `/prometheus`). See [Observability](#observability).
+
+## Observability
+
+- **Separate management port.** Actuator runs on 8081, not on the API port. Prometheus metrics
+  describe the whole platform, so a tenant's admin token must not be able to read them; on 8081
+  they're simply not reachable through the public port at all. Docker Compose binds 8081 to
+  `127.0.0.1` only; in a real deployment it would be on the internal network, where Prometheus
+  and the orchestrator's health probes can reach it.
+- **Metrics.** Spring Boot's built-in ones (HTTP latency per endpoint, JVM, the connection pool,
+  Kafka clients) plus a few for the outbox, which is where a Kafka problem shows up first. Nothing
+  fails loudly when the broker is down; events just pile up:
+  - `forgeflow_outbox_pending`: events waiting to be sent. This growing is the thing to alert on.
+  - `forgeflow_outbox_given_up`: events the relay stopped retrying. Anything above 0 needs a person.
+  - `forgeflow_outbox_published_total` / `forgeflow_outbox_send_failures_total`.
+- **Log correlation.** Every request gets an id (taken from an incoming `X-Request-ID` if it's a
+  plain short string, generated otherwise) that is echoed back in the `X-Request-ID` response
+  header, and every log line carries it next to the tenant:
+  `INFO [tenant=3f2c… req=9b1e…] …`. A user's error report with that header points straight at
+  the right log lines. Work that doesn't come from a request is labelled with its tenant too: the
+  Kafka consumer through `TenantContext.runWithTenant`, and the outbox relay per event.
+
 ## API Usage Example
 
 List endpoints (`/products`, `/quotes`, `/orders`, `/materials`, `/materials/low-stock`,

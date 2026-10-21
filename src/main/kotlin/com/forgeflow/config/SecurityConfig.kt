@@ -30,7 +30,9 @@ class SecurityConfig(
 			.authorizeHttpRequests {
 				it.requestMatchers(
 					"/api/v1/auth/**",
-					"/actuator/health",
+					// Actuator is only served on the management port (8081), never on the public
+					// API port, and that port isn't published outside the host. See application.yml.
+					"/actuator/**",
 					"/v3/api-docs/**",
 					"/swagger-ui/**",
 					"/swagger-ui.html",

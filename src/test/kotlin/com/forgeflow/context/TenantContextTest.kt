@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import org.slf4j.MDC
 import org.springframework.web.context.request.RequestContextHolder
 import java.util.UUID
 
@@ -55,6 +56,20 @@ class TenantContextTest {
 		}
 
 		assertEquals(requestTenant, TenantContext.getCurrentTenant())
+	}
+
+	@Test
+	fun `runWithTenant labels log lines with the tenant and restores the previous label afterwards`() {
+		val tenantId = UUID.randomUUID()
+		MDC.put(MDC_TENANT_ID, "outer")
+		try {
+			val seenInsideBlock = TenantContext.runWithTenant(tenantId) { MDC.get(MDC_TENANT_ID) }
+
+			assertEquals(tenantId.toString(), seenInsideBlock)
+			assertEquals("outer", MDC.get(MDC_TENANT_ID))
+		} finally {
+			MDC.remove(MDC_TENANT_ID)
+		}
 	}
 
 	@Test

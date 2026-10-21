@@ -1,11 +1,13 @@
 package com.forgeflow.config
 
+import com.forgeflow.context.MDC_TENANT_ID
 import com.forgeflow.context.TenantContext
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.jsonwebtoken.JwtException
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import org.slf4j.MDC
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.authority.SimpleGrantedAuthority
 import org.springframework.security.core.context.SecurityContextHolder
@@ -58,7 +60,12 @@ class JwtAuthenticationFilter(
 		val authentication = UsernamePasswordAuthenticationToken(claims.userId, null, authorities)
 		SecurityContextHolder.getContext().authentication = authentication
 
-		filterChain.doFilter(request, response)
+		MDC.put(MDC_TENANT_ID, claims.tenantId.toString())
+		try {
+			filterChain.doFilter(request, response)
+		} finally {
+			MDC.remove(MDC_TENANT_ID)
+		}
 	}
 
 	private fun writeError(response: HttpServletResponse, status: Int, message: String) {

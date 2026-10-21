@@ -29,4 +29,14 @@ interface OutboxEventRepository : JpaRepository<OutboxEvent, UUID> {
 		nativeQuery = true,
 	)
 	fun lockNextPending(@Param("limit") limit: Int, @Param("maxAttempts") maxAttempts: Int): List<OutboxEvent>
+
+	/** Events still waiting to be sent (the relay will keep trying these). */
+	@Transactional(readOnly = true)
+	@Query("select count(e) from OutboxEvent e where e.publishedAt is null and e.attempts < :maxAttempts")
+	fun countPending(@Param("maxAttempts") maxAttempts: Int): Long
+
+	/** Events the relay has given up on; these need a person to look at them. */
+	@Transactional(readOnly = true)
+	@Query("select count(e) from OutboxEvent e where e.publishedAt is null and e.attempts >= :maxAttempts")
+	fun countGivenUp(@Param("maxAttempts") maxAttempts: Int): Long
 }

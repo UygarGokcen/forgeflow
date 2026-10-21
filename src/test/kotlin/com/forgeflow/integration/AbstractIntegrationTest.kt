@@ -138,6 +138,9 @@ abstract class AbstractIntegrationTest {
 			registry.add("spring.data.redis.port") { SharedContainers.redis.getMappedPort(6379) }
 
 			registry.add("spring.kafka.bootstrap-servers") { SharedContainers.kafka.bootstrapServers }
+			// No separate actuator port in tests: nothing here calls actuator, and it shouldn't
+			// depend on a free port 8081 on the CI runner.
+			registry.add("management.server.port") { "-1" }
 			// If the broker is unreachable the producer waits 60 seconds by default, which would
 			// stall a test that doesn't even check Kafka. Ten seconds is plenty here.
 			registry.add("spring.kafka.producer.properties.max.block.ms") { "10000" }

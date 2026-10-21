@@ -1,9 +1,13 @@
 package com.forgeflow.context
 
+import org.slf4j.MDC
 import org.springframework.web.context.request.RequestAttributes
 import org.springframework.web.context.request.RequestContextHolder
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+
+/** Logging MDC key for the tenant a log line belongs to. */
+const val MDC_TENANT_ID = "tenantId"
 
 /**
  * Holds the tenant id for the current request.
@@ -38,12 +42,16 @@ object TenantContext {
 	 */
 	fun <T> runWithTenant(tenantId: UUID, block: () -> T): T {
 		val previous = RequestContextHolder.getRequestAttributes()
+		val previousMdcTenant = MDC.get(MDC_TENANT_ID)
 		RequestContextHolder.setRequestAttributes(BackgroundRequestAttributes())
 		setCurrentTenant(tenantId)
+		// Same tenant label on log lines as the request path gets from JwtAuthenticationFilter.
+		MDC.put(MDC_TENANT_ID, tenantId.toString())
 		try {
 			return block()
 		} finally {
 			if (previous != null) RequestContextHolder.setRequestAttributes(previous) else RequestContextHolder.resetRequestAttributes()
+			if (previousMdcTenant != null) MDC.put(MDC_TENANT_ID, previousMdcTenant) else MDC.remove(MDC_TENANT_ID)
 		}
 	}
 

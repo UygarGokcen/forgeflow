@@ -25,14 +25,13 @@ class OrderEventListener(
 
 	@KafkaListener(topics = [ORDER_EVENTS_TOPIC], groupId = "forgeflow-backend")
 	fun onOrderConverted(event: OrderConvertedEvent) {
-		log.info(
-			"[order-events] order {} ({}) confirmed for tenant {} — total {}",
-			event.orderNumber,
-			event.orderId,
-			event.tenantId,
-			event.totalAmount,
-		)
 		TenantContext.runWithTenant(event.tenantId) {
+			log.info(
+				"[order-events] order {} ({}) confirmed — total {}",
+				event.orderNumber,
+				event.orderId,
+				event.totalAmount,
+			)
 			notificationService.recordOrderConfirmation(event)
 		}
 	}

@@ -12,5 +12,6 @@ FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=build /workspace/build/libs/*.jar app.jar
 
-EXPOSE 8080
+# 8080: the API. 8081: actuator (health, metrics), meant for the internal network only.
+EXPOSE 8080 8081
 ENTRYPOINT ["java", "-jar", "app.jar"]

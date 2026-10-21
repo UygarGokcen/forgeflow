@@ -9,6 +9,11 @@ plugins {
 group = "com.forgeflow"
 version = "0.0.1-SNAPSHOT"
 
+springBoot {
+	// Adds the version and build time to /actuator/info.
+	buildInfo()
+}
+
 java {
 	toolchain {
 		languageVersion = JavaLanguageVersion.of(21)
@@ -34,6 +39,7 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
+	implementation("io.micrometer:micrometer-registry-prometheus")
 	implementation("org.springframework.boot:spring-boot-starter-data-redis")
 	implementation("org.springframework.boot:spring-boot-starter-cache")
 	implementation("org.springframework.kafka:spring-kafka")

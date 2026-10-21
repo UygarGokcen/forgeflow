@@ -2,8 +2,12 @@ package com.forgeflow.event
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.forgeflow.config.ORDER_EVENTS_TOPIC
+import com.forgeflow.context.MDC_TENANT_ID
 import com.forgeflow.repository.OutboxEventRepository
+import io.micrometer.core.instrument.Counter
+import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
+import org.slf4j.MDC
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.scheduling.annotation.Scheduled
@@ -46,10 +50,18 @@ class OutboxPublisher(
 	private val outboxEventRepository: OutboxEventRepository,
 	private val kafkaTemplate: KafkaTemplate<String, OrderConvertedEvent>,
 	private val objectMapper: ObjectMapper,
+	meterRegistry: MeterRegistry,
 	@Value("\${forgeflow.outbox.batch-size:50}") private val batchSize: Int,
 ) {
 
 	private val log = LoggerFactory.getLogger(OutboxPublisher::class.java)
+
+	private val publishedCounter = Counter.builder("forgeflow.outbox.published")
+		.description("Outbox events Kafka acknowledged")
+		.register(meterRegistry)
+	private val failedCounter = Counter.builder("forgeflow.outbox.send.failures")
+		.description("Failed attempts to send an outbox event to Kafka")
+		.register(meterRegistry)
 
 	/**
 	 * One failed event doesn't stop the rest of the batch: it gets its attempt counted and error
@@ -60,24 +72,29 @@ class OutboxPublisher(
 		val pending = outboxEventRepository.lockNextPending(batchSize, OUTBOX_MAX_ATTEMPTS)
 		var published = 0
 		for (event in pending) {
-			try {
-				val payload = objectMapper.readValue(event.payload, OrderConvertedEvent::class.java)
-				// Waiting for the broker's ack is the point: the row is only marked published
-				// once Kafka has actually taken the message.
-				kafkaTemplate.send(ORDER_EVENTS_TOPIC, event.tenantId.toString(), payload)
-					.get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-				event.publishedAt = Instant.now()
-				published++
-			} catch (ex: Exception) {
-				event.attempts += 1
-				event.lastError = (ex.cause?.message ?: ex.message ?: ex.javaClass.simpleName).take(1000)
-				log.warn(
-					"Failed to publish outbox event {} (attempt {} of {})",
-					event.id,
-					event.attempts,
-					OUTBOX_MAX_ATTEMPTS,
-					ex,
-				)
+			// Label this event's log lines with its tenant, like a request's would be.
+			MDC.putCloseable(MDC_TENANT_ID, event.tenantId.toString()).use {
+				try {
+					val payload = objectMapper.readValue(event.payload, OrderConvertedEvent::class.java)
+					// Waiting for the broker's ack is the point: the row is only marked published
+					// once Kafka has actually taken the message.
+					kafkaTemplate.send(ORDER_EVENTS_TOPIC, event.tenantId.toString(), payload)
+						.get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+					event.publishedAt = Instant.now()
+					publishedCounter.increment()
+					published++
+				} catch (ex: Exception) {
+					event.attempts += 1
+					event.lastError = (ex.cause?.message ?: ex.message ?: ex.javaClass.simpleName).take(1000)
+					failedCounter.increment()
+					log.warn(
+						"Failed to publish outbox event {} (attempt {} of {})",
+						event.id,
+						event.attempts,
+						OUTBOX_MAX_ATTEMPTS,
+						ex,
+					)
+				}
 			}
 		}
 		return published
