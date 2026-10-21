@@ -9,6 +9,7 @@ import com.forgeflow.domain.PurchaseOrderStatus
 import com.forgeflow.domain.StockMovement
 import com.forgeflow.domain.StockMovementReason
 import com.forgeflow.dto.CreatePurchaseOrderRequest
+import com.forgeflow.dto.PageResponse
 import com.forgeflow.dto.PurchaseOrderLineItemResponse
 import com.forgeflow.dto.PurchaseOrderResponse
 import com.forgeflow.exception.EmptyPurchaseOrderException
@@ -18,6 +19,7 @@ import com.forgeflow.repository.MaterialRepository
 import com.forgeflow.repository.PurchaseOrderLineItemRepository
 import com.forgeflow.repository.PurchaseOrderRepository
 import com.forgeflow.repository.StockMovementRepository
+import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
@@ -73,9 +75,24 @@ class PurchaseOrderService(
 	}
 
 	@Transactional(readOnly = true)
-	fun list(): List<PurchaseOrderResponse> {
+	fun list(pageable: Pageable): PageResponse<PurchaseOrderResponse> {
 		val tenantId = TenantContext.getCurrentTenant()
-		return purchaseOrderRepository.findAllByTenantId(tenantId).map { it.withLineItems(tenantId) }
+		val page = purchaseOrderRepository.findAllByTenantId(tenantId, pageable.newestFirstIfUnsorted())
+		// Two queries for the whole page (line items, then their materials), instead of two per order.
+		val purchaseOrderIds = page.content.map { it.id!! }
+		val lineItemsByPurchaseOrder = if (purchaseOrderIds.isEmpty()) {
+			emptyMap()
+		} else {
+			purchaseOrderLineItemRepository.findAllByTenantIdAndPurchaseOrderIdIn(tenantId, purchaseOrderIds)
+				.groupBy { it.purchaseOrderId }
+		}
+		val materialIds = lineItemsByPurchaseOrder.values.flatten().map { it.materialId }.distinct()
+		val materials = if (materialIds.isEmpty()) {
+			emptyMap()
+		} else {
+			materialRepository.findAllByTenantIdAndIdIn(tenantId, materialIds).associateBy { it.id!! }
+		}
+		return PageResponse.of(page) { it.toResponse(lineItemsByPurchaseOrder[it.id].orEmpty(), materials) }
 	}
 
 	@Transactional(readOnly = true)

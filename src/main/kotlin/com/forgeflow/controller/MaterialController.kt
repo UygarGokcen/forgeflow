@@ -3,10 +3,13 @@ package com.forgeflow.controller
 import com.forgeflow.dto.AdjustStockRequest
 import com.forgeflow.dto.CreateMaterialRequest
 import com.forgeflow.dto.MaterialResponse
+import com.forgeflow.dto.PageResponse
 import com.forgeflow.dto.StockMovementResponse
 import com.forgeflow.dto.UpdateMaterialRequest
 import com.forgeflow.service.MaterialService
 import jakarta.validation.Valid
+import org.springdoc.core.annotations.ParameterObject
+import org.springframework.data.domain.Pageable
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.access.prepost.PreAuthorize
@@ -32,10 +35,12 @@ class MaterialController(
 		ResponseEntity.status(HttpStatus.CREATED).body(materialService.create(request))
 
 	@GetMapping
-	fun list(): ResponseEntity<List<MaterialResponse>> = ResponseEntity.ok(materialService.list())
+	fun list(@ParameterObject pageable: Pageable): ResponseEntity<PageResponse<MaterialResponse>> =
+		ResponseEntity.ok(materialService.list(pageable))
 
 	@GetMapping("/low-stock")
-	fun listLowStock(): ResponseEntity<List<MaterialResponse>> = ResponseEntity.ok(materialService.listLowStock())
+	fun listLowStock(@ParameterObject pageable: Pageable): ResponseEntity<PageResponse<MaterialResponse>> =
+		ResponseEntity.ok(materialService.listLowStock(pageable))
 
 	@GetMapping("/{id}")
 	fun get(@PathVariable id: UUID): ResponseEntity<MaterialResponse> = ResponseEntity.ok(materialService.get(id))
@@ -62,6 +67,8 @@ class MaterialController(
 	): ResponseEntity<MaterialResponse> = ResponseEntity.ok(materialService.adjustStock(id, request))
 
 	@GetMapping("/{id}/movements")
-	fun listMovements(@PathVariable id: UUID): ResponseEntity<List<StockMovementResponse>> =
-		ResponseEntity.ok(materialService.listMovements(id))
+	fun listMovements(
+		@PathVariable id: UUID,
+		@ParameterObject pageable: Pageable,
+	): ResponseEntity<PageResponse<StockMovementResponse>> = ResponseEntity.ok(materialService.listMovements(id, pageable))
 }

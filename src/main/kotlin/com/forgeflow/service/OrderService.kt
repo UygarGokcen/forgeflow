@@ -4,9 +4,11 @@ import com.forgeflow.context.TenantContext
 import com.forgeflow.domain.Order
 import com.forgeflow.domain.OrderStatus
 import com.forgeflow.dto.OrderResponse
+import com.forgeflow.dto.PageResponse
 import com.forgeflow.exception.InvalidOrderStatusTransitionException
 import com.forgeflow.exception.ResourceNotFoundException
 import com.forgeflow.repository.OrderRepository
+import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -17,8 +19,10 @@ class OrderService(
 ) {
 
 	@Transactional(readOnly = true)
-	fun list(): List<OrderResponse> =
-		orderRepository.findAllByTenantId(TenantContext.getCurrentTenant()).map { it.toResponse() }
+	fun list(pageable: Pageable): PageResponse<OrderResponse> =
+		PageResponse.of(
+			orderRepository.findAllByTenantId(TenantContext.getCurrentTenant(), pageable.newestFirstIfUnsorted()),
+		) { it.toResponse() }
 
 	@Transactional(readOnly = true)
 	fun get(id: UUID): OrderResponse = findOwned(id).toResponse()

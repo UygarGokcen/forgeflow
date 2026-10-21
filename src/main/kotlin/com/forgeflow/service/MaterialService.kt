@@ -7,6 +7,7 @@ import com.forgeflow.domain.StockMovementReason
 import com.forgeflow.dto.AdjustStockRequest
 import com.forgeflow.dto.CreateMaterialRequest
 import com.forgeflow.dto.MaterialResponse
+import com.forgeflow.dto.PageResponse
 import com.forgeflow.dto.StockMovementResponse
 import com.forgeflow.dto.UpdateMaterialRequest
 import com.forgeflow.exception.DuplicateMaterialSkuException
@@ -14,6 +15,7 @@ import com.forgeflow.exception.InvalidStockAdjustmentException
 import com.forgeflow.exception.ResourceNotFoundException
 import com.forgeflow.repository.MaterialRepository
 import com.forgeflow.repository.StockMovementRepository
+import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
@@ -59,16 +61,20 @@ class MaterialService(
 	}
 
 	@Transactional(readOnly = true)
-	fun list(): List<MaterialResponse> =
-		materialRepository.findAllByTenantId(TenantContext.getCurrentTenant()).map { it.toResponse() }
+	fun list(pageable: Pageable): PageResponse<MaterialResponse> =
+		PageResponse.of(
+			materialRepository.findAllByTenantId(TenantContext.getCurrentTenant(), pageable.newestFirstIfUnsorted()),
+		) { it.toResponse() }
 
 	@Transactional(readOnly = true)
 	fun get(id: UUID): MaterialResponse = findOwned(id).toResponse()
 
 	/** Materials at or below their reorder level, so someone can order more in time. */
 	@Transactional(readOnly = true)
-	fun listLowStock(): List<MaterialResponse> =
-		materialRepository.findLowStock(TenantContext.getCurrentTenant()).map { it.toResponse() }
+	fun listLowStock(pageable: Pageable): PageResponse<MaterialResponse> =
+		PageResponse.of(
+			materialRepository.findLowStock(TenantContext.getCurrentTenant(), pageable.newestFirstIfUnsorted()),
+		) { it.toResponse() }
 
 	@Transactional
 	fun update(id: UUID, request: UpdateMaterialRequest): MaterialResponse {
@@ -114,12 +120,14 @@ class MaterialService(
 		return saved.toResponse()
 	}
 
+	/** The ledger only ever grows, so it's paged like the top-level lists, newest first. */
 	@Transactional(readOnly = true)
-	fun listMovements(id: UUID): List<StockMovementResponse> {
+	fun listMovements(id: UUID, pageable: Pageable): PageResponse<StockMovementResponse> {
 		val tenantId = TenantContext.getCurrentTenant()
 		findOwned(id)
-		return stockMovementRepository.findAllByTenantIdAndMaterialIdOrderByCreatedAtDesc(tenantId, id)
-			.map { it.toResponse() }
+		return PageResponse.of(
+			stockMovementRepository.findAllByTenantIdAndMaterialId(tenantId, id, pageable.newestFirstIfUnsorted()),
+		) { it.toResponse() }
 	}
 
 	@Transactional

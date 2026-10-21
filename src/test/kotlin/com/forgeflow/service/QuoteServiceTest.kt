@@ -30,10 +30,14 @@ import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.doAnswer
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import org.springframework.context.ApplicationEventPublisher
+import org.springframework.data.domain.PageImpl
+import org.springframework.data.domain.PageRequest
 import java.math.BigDecimal
 import java.util.UUID
 
@@ -248,6 +252,32 @@ class QuoteServiceTest {
 		verify(orderRepository, org.mockito.kotlin.never()).save(any())
 		verify(eventPublisher, org.mockito.kotlin.never()).publishEvent(any())
 	}
+
+	@Test
+	fun `list loads line items for the whole page in one query, not one per quote`() {
+		val first = draftQuote()
+		val second = draftQuote()
+		val pageable = PageRequest.of(0, 20)
+		whenever(quoteRepository.findAllByTenantId(eq(tenantId), any())).thenReturn(PageImpl(listOf(first, second), pageable, 2))
+		whenever(quoteLineItemRepository.findAllByTenantIdAndQuoteIdIn(tenantId, listOf(first.id!!, second.id!!)))
+			.thenReturn(listOf(lineItemFor(first), lineItemFor(first), lineItemFor(second)))
+
+		val page = quoteService.list(pageable)
+
+		assertEquals(listOf(2, 1), page.content.map { it.lineItems.size })
+		assertEquals(2L, page.totalElements)
+		verify(quoteLineItemRepository, never()).findAllByTenantIdAndQuoteId(any(), any())
+	}
+
+	private fun lineItemFor(quote: Quote) = QuoteLineItem(
+		tenantId = tenantId,
+		quoteId = quote.id!!,
+		productId = product.id!!,
+		quantity = BigDecimal("1"),
+		unitPrice = BigDecimal("20.00"),
+		lineTotal = BigDecimal("20.00"),
+		id = UUID.randomUUID(),
+	)
 
 	private fun draftQuote() = Quote(
 		tenantId = tenantId,

@@ -9,6 +9,7 @@ import com.forgeflow.domain.QuoteLineItem
 import com.forgeflow.domain.QuoteStatus
 import com.forgeflow.dto.AddQuoteLineItemRequest
 import com.forgeflow.dto.CreateQuoteRequest
+import com.forgeflow.dto.PageResponse
 import com.forgeflow.dto.QuoteLineItemResponse
 import com.forgeflow.dto.QuoteResponse
 import com.forgeflow.event.OrderConvertedEvent
@@ -22,6 +23,7 @@ import com.forgeflow.repository.QuoteRepository
 import com.forgeflow.service.pricing.PricingContext
 import com.forgeflow.service.pricing.PricingStrategyResolver
 import org.springframework.context.ApplicationEventPublisher
+import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
@@ -67,11 +69,17 @@ class QuoteService(
 	}
 
 	@Transactional(readOnly = true)
-	fun list(): List<QuoteResponse> {
+	fun list(pageable: Pageable): PageResponse<QuoteResponse> {
 		val tenantId = TenantContext.getCurrentTenant()
-		return quoteRepository.findAllByTenantId(tenantId).map { quote ->
-			quote.toResponse(quoteLineItemRepository.findAllByTenantIdAndQuoteId(tenantId, quote.id!!))
+		val page = quoteRepository.findAllByTenantId(tenantId, pageable.newestFirstIfUnsorted())
+		// One query for the line items of every quote on this page, instead of one per quote.
+		val quoteIds = page.content.map { it.id!! }
+		val lineItemsByQuote = if (quoteIds.isEmpty()) {
+			emptyMap()
+		} else {
+			quoteLineItemRepository.findAllByTenantIdAndQuoteIdIn(tenantId, quoteIds).groupBy { it.quoteId }
 		}
+		return PageResponse.of(page) { it.toResponse(lineItemsByQuote[it.id].orEmpty()) }
 	}
 
 	@Transactional(readOnly = true)

@@ -143,7 +143,7 @@ class InventoryAndPurchaseOrderFlowIntegrationTest : AbstractIntegrationTest() {
 
 		val ordersJson = mockMvc.perform(get("/api/v1/orders").header("Authorization", auth))
 			.andExpect(status().isOk).andReturn().response.contentAsString
-		val order = objectMapper.readValue(ordersJson, Array<OrderResponse>::class.java).single()
+		val order = pageContent(ordersJson, Array<OrderResponse>::class.java).single()
 		assertEquals(quote.id, order.quoteId)
 
 		fun getMaterial(): MaterialResponse {
@@ -155,7 +155,7 @@ class InventoryAndPurchaseOrderFlowIntegrationTest : AbstractIntegrationTest() {
 		fun getMovements(): List<StockMovementResponse> {
 			val json = mockMvc.perform(get("/api/v1/materials/${material.id}/movements").header("Authorization", auth))
 				.andExpect(status().isOk).andReturn().response.contentAsString
-			return objectMapper.readValue(json, Array<StockMovementResponse>::class.java).toList()
+			return pageContent(json, Array<StockMovementResponse>::class.java)
 		}
 
 		// 100 - 3.3 = 96.7, and the ledger shows exactly why.

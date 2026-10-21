@@ -9,4 +9,8 @@ interface PurchaseOrderLineItemRepository : JpaRepository<PurchaseOrderLineItem,
 
 	@Transactional(readOnly = true)
 	fun findAllByTenantIdAndPurchaseOrderId(tenantId: UUID, purchaseOrderId: UUID): List<PurchaseOrderLineItem>
+
+	/** Line items for a whole page of purchase orders in one query. */
+	@Transactional(readOnly = true)
+	fun findAllByTenantIdAndPurchaseOrderIdIn(tenantId: UUID, purchaseOrderIds: Collection<UUID>): List<PurchaseOrderLineItem>
 }

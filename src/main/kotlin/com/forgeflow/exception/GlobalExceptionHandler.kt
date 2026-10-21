@@ -2,6 +2,8 @@ package com.forgeflow.exception
 
 import jakarta.servlet.http.HttpServletRequest
 import org.slf4j.LoggerFactory
+import org.springframework.dao.InvalidDataAccessApiUsageException
+import org.springframework.data.mapping.PropertyReferenceException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.MethodArgumentNotValidException
@@ -40,6 +42,17 @@ class GlobalExceptionHandler {
 				fieldErrors = fieldErrors,
 			),
 		)
+	}
+
+	/**
+	 * `?sort=` names an entity property; an unknown one is a client mistake, not a server error.
+	 * Spring Data sometimes wraps it in an InvalidDataAccessApiUsageException, so both are handled.
+	 */
+	@ExceptionHandler(PropertyReferenceException::class, InvalidDataAccessApiUsageException::class)
+	fun handleBadSort(ex: RuntimeException, request: HttpServletRequest): ResponseEntity<ApiError> {
+		val propertyError = ex as? PropertyReferenceException ?: ex.cause as? PropertyReferenceException
+			?: return handleUnexpected(ex, request)
+		return respond(HttpStatus.BAD_REQUEST, "Unknown sort property '${propertyError.propertyName}'", request)
 	}
 
 	@ExceptionHandler(Exception::class)

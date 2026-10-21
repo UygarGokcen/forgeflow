@@ -1,6 +1,8 @@
 package com.forgeflow.repository
 
 import com.forgeflow.domain.Product
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -10,7 +12,7 @@ interface ProductRepository : JpaRepository<Product, UUID> {
 	fun findByTenantIdAndId(tenantId: UUID, id: UUID): Product?
 
 	@Transactional(readOnly = true)
-	fun findAllByTenantId(tenantId: UUID): List<Product>
+	fun findAllByTenantId(tenantId: UUID, pageable: Pageable): Page<Product>
 
 	@Transactional(readOnly = true)
 	fun findAllByTenantIdAndIdIn(tenantId: UUID, ids: Collection<UUID>): List<Product>

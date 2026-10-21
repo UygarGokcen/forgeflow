@@ -387,6 +387,16 @@ boots, and the API is served on `http://localhost:8080`. There is also Swagger U
 
 ## API Usage Example
 
+List endpoints (`/products`, `/quotes`, `/orders`, `/materials`, `/materials/low-stock`,
+`/materials/{id}/movements`, `/purchase-orders`) are paged. They take `?page=`, `?size=` (default 20,
+capped at 100) and `?sort=property,asc|desc`, default to newest first, and return
+`{ "content": [...], "page", "size", "totalElements", "totalPages" }`. An unknown sort property is a
+400. Small nested lists that can't grow without bound (a product's pricing rules or recipe, an
+order's notifications) stay plain arrays.
+
+Listing a page of quotes or purchase orders loads their line items with one query for the whole
+page, instead of one query per quote or order.
+
 ```bash
 # 1. Register a tenant (creates the tenant + its first ADMIN user, returns a JWT)
 curl -X POST http://localhost:8080/api/v1/auth/register-tenant \
@@ -435,7 +445,7 @@ curl -X PUT http://localhost:8080/api/v1/quotes/$QUOTE_ID/status \
   -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"status":"CONVERTED_TO_ORDER"}'
 
 # 7. The order exists as its own resource, and 3.3 m2 of sheet is gone (10 -> 6.7)
-ORDER_ID=$(curl -s http://localhost:8080/api/v1/orders -H "Authorization: Bearer $TOKEN" | jq -r '.[0].id')
+ORDER_ID=$(curl -s http://localhost:8080/api/v1/orders -H "Authorization: Bearer $TOKEN" | jq -r '.content[0].id')
 curl http://localhost:8080/api/v1/materials/$MATERIAL_ID -H "Authorization: Bearer $TOKEN"
 
 # Move the order through its own lifecycle as the shop builds and ships it

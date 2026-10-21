@@ -81,7 +81,7 @@ class TenantIsolationIntegrationTest : AbstractIntegrationTest() {
 		val tenantBListJson = mockMvc.perform(
 			get("/api/v1/products").header("Authorization", "Bearer ${tenantB.token}"),
 		).andExpect(status().isOk).andReturn().response.contentAsString
-		val tenantBProducts = objectMapper.readValue(tenantBListJson, Array<ProductResponse>::class.java)
+		val tenantBProducts = pageContent(tenantBListJson, Array<ProductResponse>::class.java)
 
 		assertTrue(tenantBProducts.isEmpty(), "tenant B must not see tenant A's products")
 	}

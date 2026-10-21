@@ -1,10 +1,13 @@
 package com.forgeflow.controller
 
 import com.forgeflow.dto.CreateProductRequest
+import com.forgeflow.dto.PageResponse
 import com.forgeflow.dto.ProductResponse
 import com.forgeflow.dto.UpdateProductRequest
 import com.forgeflow.service.ProductService
 import jakarta.validation.Valid
+import org.springdoc.core.annotations.ParameterObject
+import org.springframework.data.domain.Pageable
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.access.prepost.PreAuthorize
@@ -30,7 +33,8 @@ class ProductController(
 		ResponseEntity.status(HttpStatus.CREATED).body(productService.create(request))
 
 	@GetMapping
-	fun list(): ResponseEntity<List<ProductResponse>> = ResponseEntity.ok(productService.list())
+	fun list(@ParameterObject pageable: Pageable): ResponseEntity<PageResponse<ProductResponse>> =
+		ResponseEntity.ok(productService.list(pageable))
 
 	@GetMapping("/{id}")
 	fun get(@PathVariable id: UUID): ResponseEntity<ProductResponse> = ResponseEntity.ok(productService.get(id))

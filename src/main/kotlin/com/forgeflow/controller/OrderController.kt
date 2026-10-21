@@ -2,10 +2,13 @@ package com.forgeflow.controller
 
 import com.forgeflow.dto.OrderNotificationResponse
 import com.forgeflow.dto.OrderResponse
+import com.forgeflow.dto.PageResponse
 import com.forgeflow.dto.UpdateOrderStatusRequest
 import com.forgeflow.service.NotificationService
 import com.forgeflow.service.OrderService
 import jakarta.validation.Valid
+import org.springdoc.core.annotations.ParameterObject
+import org.springframework.data.domain.Pageable
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -23,7 +26,8 @@ class OrderController(
 ) {
 
 	@GetMapping
-	fun list(): ResponseEntity<List<OrderResponse>> = ResponseEntity.ok(orderService.list())
+	fun list(@ParameterObject pageable: Pageable): ResponseEntity<PageResponse<OrderResponse>> =
+		ResponseEntity.ok(orderService.list(pageable))
 
 	@GetMapping("/{id}")
 	fun get(@PathVariable id: UUID): ResponseEntity<OrderResponse> = ResponseEntity.ok(orderService.get(id))

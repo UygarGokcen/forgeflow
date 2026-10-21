@@ -1,10 +1,13 @@
 package com.forgeflow.controller
 
 import com.forgeflow.dto.CreatePurchaseOrderRequest
+import com.forgeflow.dto.PageResponse
 import com.forgeflow.dto.PurchaseOrderResponse
 import com.forgeflow.dto.UpdatePurchaseOrderStatusRequest
 import com.forgeflow.service.PurchaseOrderService
 import jakarta.validation.Valid
+import org.springdoc.core.annotations.ParameterObject
+import org.springframework.data.domain.Pageable
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.access.prepost.PreAuthorize
@@ -29,7 +32,8 @@ class PurchaseOrderController(
 		ResponseEntity.status(HttpStatus.CREATED).body(purchaseOrderService.create(request))
 
 	@GetMapping
-	fun list(): ResponseEntity<List<PurchaseOrderResponse>> = ResponseEntity.ok(purchaseOrderService.list())
+	fun list(@ParameterObject pageable: Pageable): ResponseEntity<PageResponse<PurchaseOrderResponse>> =
+		ResponseEntity.ok(purchaseOrderService.list(pageable))
 
 	@GetMapping("/{id}")
 	fun get(@PathVariable id: UUID): ResponseEntity<PurchaseOrderResponse> =

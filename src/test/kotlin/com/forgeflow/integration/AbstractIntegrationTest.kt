@@ -90,6 +90,10 @@ abstract class AbstractIntegrationTest {
 		return condition() ?: error("Condition was not met within ${timeoutMs}ms")
 	}
 
+	/** The `content` of a paged list response (see `PageResponse`), as the given element type. */
+	protected fun <T> pageContent(json: String, arrayType: Class<Array<T>>): List<T> =
+		objectMapper.treeToValue(objectMapper.readTree(json).get("content"), arrayType).toList()
+
 	/** Registers a new tenant with a unique slug and returns its admin's token. */
 	protected fun registerTenant(slugPrefix: String): AuthResponse {
 		val slug = "$slugPrefix-${UUID.randomUUID().toString().take(8)}"

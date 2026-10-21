@@ -2,10 +2,13 @@ package com.forgeflow.controller
 
 import com.forgeflow.dto.AddQuoteLineItemRequest
 import com.forgeflow.dto.CreateQuoteRequest
+import com.forgeflow.dto.PageResponse
 import com.forgeflow.dto.QuoteResponse
 import com.forgeflow.dto.UpdateQuoteStatusRequest
 import com.forgeflow.service.QuoteService
 import jakarta.validation.Valid
+import org.springdoc.core.annotations.ParameterObject
+import org.springframework.data.domain.Pageable
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -29,7 +32,8 @@ class QuoteController(
 		ResponseEntity.status(HttpStatus.CREATED).body(quoteService.create(request))
 
 	@GetMapping
-	fun list(): ResponseEntity<List<QuoteResponse>> = ResponseEntity.ok(quoteService.list())
+	fun list(@ParameterObject pageable: Pageable): ResponseEntity<PageResponse<QuoteResponse>> =
+		ResponseEntity.ok(quoteService.list(pageable))
 
 	@GetMapping("/{id}")
 	fun get(@PathVariable id: UUID): ResponseEntity<QuoteResponse> = ResponseEntity.ok(quoteService.get(id))

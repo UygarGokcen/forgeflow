@@ -98,7 +98,7 @@ class QuoteToOrderFlowIntegrationTest : AbstractIntegrationTest() {
 		val ordersJson = mockMvc.perform(get("/api/v1/orders").header("Authorization", auth))
 			.andExpect(status().isOk)
 			.andReturn().response.contentAsString
-		val orders = objectMapper.readValue(ordersJson, Array<OrderResponse>::class.java)
+		val orders = pageContent(ordersJson, Array<OrderResponse>::class.java)
 
 		assertEquals(1, orders.size)
 		assertEquals(quote.id, orders[0].quoteId)

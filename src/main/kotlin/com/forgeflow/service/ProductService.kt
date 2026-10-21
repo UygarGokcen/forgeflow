@@ -3,11 +3,13 @@ package com.forgeflow.service
 import com.forgeflow.context.TenantContext
 import com.forgeflow.domain.Product
 import com.forgeflow.dto.CreateProductRequest
+import com.forgeflow.dto.PageResponse
 import com.forgeflow.dto.ProductResponse
 import com.forgeflow.dto.UpdateProductRequest
 import com.forgeflow.exception.DuplicateSkuException
 import com.forgeflow.exception.ResourceNotFoundException
 import com.forgeflow.repository.ProductRepository
+import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -39,8 +41,10 @@ class ProductService(
 	}
 
 	@Transactional(readOnly = true)
-	fun list(): List<ProductResponse> =
-		productRepository.findAllByTenantId(TenantContext.getCurrentTenant()).map { it.toResponse() }
+	fun list(pageable: Pageable): PageResponse<ProductResponse> =
+		PageResponse.of(
+			productRepository.findAllByTenantId(TenantContext.getCurrentTenant(), pageable.newestFirstIfUnsorted()),
+		) { it.toResponse() }
 
 	@Transactional(readOnly = true)
 	fun get(id: UUID): ProductResponse = findOwned(id).toResponse()

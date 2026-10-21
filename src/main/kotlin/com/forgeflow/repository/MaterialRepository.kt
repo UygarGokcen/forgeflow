@@ -2,6 +2,8 @@ package com.forgeflow.repository
 
 import com.forgeflow.domain.Material
 import jakarta.persistence.LockModeType
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
@@ -15,7 +17,7 @@ interface MaterialRepository : JpaRepository<Material, UUID> {
 	fun findByTenantIdAndId(tenantId: UUID, id: UUID): Material?
 
 	@Transactional(readOnly = true)
-	fun findAllByTenantId(tenantId: UUID): List<Material>
+	fun findAllByTenantId(tenantId: UUID, pageable: Pageable): Page<Material>
 
 	@Transactional(readOnly = true)
 	fun existsByTenantIdAndSku(tenantId: UUID, sku: String): Boolean
@@ -25,7 +27,7 @@ interface MaterialRepository : JpaRepository<Material, UUID> {
 
 	@Transactional(readOnly = true)
 	@Query("select m from Material m where m.tenantId = :tenantId and m.stockQuantity <= m.reorderLevel")
-	fun findLowStock(@Param("tenantId") tenantId: UUID): List<Material>
+	fun findLowStock(@Param("tenantId") tenantId: UUID, pageable: Pageable): Page<Material>
 
 	/**
 	 * Locks these material rows with `SELECT ... FOR UPDATE` until the calling transaction ends, so
